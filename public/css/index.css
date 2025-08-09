@@ -1,0 +1,64 @@
+/* ... 您原来的CSS样式保持不变 ... */
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:#333;margin:0;padding:0;display:flex;flex-direction:column;min-height:100vh;box-sizing:border-box;background-image:url('https://api.suyanw.cn/api/comic/');background-size:cover;background-position:center;background-repeat:no-repeat;background-attachment:fixed}
+.main-content{display:flex;justify-content:center;align-items:center;flex-grow:1;padding:20px}
+.container{background-color:rgba(255,255,255,.9);padding:30px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.15);width:100%;max-width:600px;box-sizing:border-box;backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px)}
+h2,h3{color:#1c1e21;border-bottom:1px solid #e0e0e0;padding-bottom:10px;margin-top:0}
+h3{margin-top:30px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600;color:#3f444d}textarea,select{width:100%;padding:12px;border:1px solid #dddfe2;border-radius:6px;font-size:16px;box-sizing:border-box;transition:border-color .2s ease,box-shadow .2s ease;background-color:rgba(255,255,255,.8)}textarea:focus,select:focus{border-color:#007bff;box-shadow:0 0 0 3px rgba(0,123,255,.25);outline:none}.action-area{display:flex;align-items:center;gap:15px}button{background-color:#007bff;color:#fff;padding:12px 24px;border:none;border-radius:6px;cursor:pointer;font-size:16px;font-weight:700;transition:background-color .2s ease,transform .1s ease}button:hover:not(:disabled){background-color:#0056b3;transform:translateY(-1px)}button:active:not(:disabled){transform:translateY(0)}button:disabled{background-color:#cdd2d8;cursor:not-allowed}#loadingIndicator{color:#606770;font-weight:500}.result-area{margin-top:25px}audio{margin-top:10px;width:100%}#downloadLink{display:none;margin-top:15px;color:#007bff;text-decoration:none;font-weight:500;background-color:rgba(0,123,255,.1);padding:5px 10px;border-radius:5px;transition:background-color .2s ease}#downloadLink:hover{text-decoration:underline;background-color:rgba(0,123,255,.2)}
+
+/* --- 新增：导航栏样式 --- */
+.navbar {
+    width: 100%;
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 0 20px;
+    height: 60px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-sizing: border-box;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    flex-shrink: 0;
+
+    /* --- 新增的属性 --- */
+    position: sticky;
+    top: 0;
+    z-index: 1000; /* 确保导航栏在最上层 */
+}
+.navbar .logo {
+    font-weight: bold;
+    font-size: 20px;
+    color: #007bff;
+}
+.navbar .user-nav {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+.navbar .user-nav a {
+    text-decoration: none;
+    color: #007bff;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: background-color 0.2s;
+}
+.navbar .user-nav a:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+.navbar .user-nav .user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.navbar .user-nav .user-info img {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+select option:disabled {
+    color: #aaa;
+    background-color: #f4f4f4;
+}

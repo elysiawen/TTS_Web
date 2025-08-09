@@ -1,0 +1,88 @@
+@keyframes slideDown {
+    0% {
+        transform: translateX(-50%) translateY(-100%);
+        opacity: 0;
+    }
+    100% {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    0% {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+    100% {
+        transform: translateX(-50%) translateY(-100%);
+        opacity: 0;
+    }
+}
+
+.notification {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #4caf50; /* 默认绿色背景 */
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s ease, top 0.3s ease;
+}
+
+.notification.show {
+    display: block;
+    animation: slideDown 0.3s forwards;
+}
+
+.notification.hide {
+    display: block; /* 确保隐藏动画时元素依然显示 */
+    animation: slideUp 0.3s forwards;
+}
+
+/* 错误通知的红色样式 */
+.notification.error {
+    background-color: #f44336;
+}
+
+/* 警告通知的黄色样式 */
+.notification.warning {
+    background-color: #ff9800;
+}
+
+.notification.loading {
+    background-color: skyblue;
+}
+
+/* 图标样式 */
+.notification::before {
+    content: '';
+    margin-right: 10px;
+}
+
+.notification.success::before {
+    content: '✔';
+}
+
+.notification.error::before {
+    content: '✖';
+}
+
+.notification.warning::before {
+    content: '⚠';
+}
+
+.notification.loading::before {
+    content: '⏳';
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

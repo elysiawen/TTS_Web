@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员仪表盘 - TTS 服务</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
+        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; }
+        .sidebar h2 { text-align: center; color: #fff; margin-bottom: 30px; }
+        .sidebar ul { list-style: none; padding: 0; }
+        .sidebar ul li a { display: block; padding: 15px 20px; color: #ecf0f1; text-decoration: none; transition: background 0.3s; }
+        .sidebar ul li a:hover, .sidebar ul li a.active { background: #34495e; border-left: 3px solid #3498db; }
+        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 30px; }
+        .stat-card { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .stat-card h3 { margin-top: 0; font-size: 16px; color: #7f8c8d; }
+        .stat-card .stat-number { font-size: 36px; font-weight: bold; color: #2c3e50; margin-top: 10px; }
+        .chart-container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-top: 30px; }
+    </style>
+</head>
+<body>
+<nav id="sidebar-container" class="sidebar"></nav>
+<main class="main-content">
+    <header class="header">
+        <h1>仪表盘</h1>
+        <div id="welcome-message"></div>
+    </header>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>总用户数</h3>
+            <p id="total-users" class="stat-number">...</p>
+        </div>
+        <div class="stat-card">
+            <h3>总 Token 数</h3>
+            <p id="total-tokens" class="stat-number">...</p>
+        </div>
+        <div class="stat-card">
+            <h3>今日调用</h3>
+            <p id="today-calls" class="stat-number">...</p>
+        </div>
+        <div class="stat-card">
+            <h3>API 总调用</h3>
+            <p id="total-calls" class="stat-number">...</p>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h3>最近7天 API 调用趋势</h3>
+        <canvas id="api-calls-chart"></canvas>
+    </div>
+</main>
+<script src="/admin/js/admin.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        loadSidebar();
+        // 获取并显示管理员信息
+        try {
+            const sessionRes = await fetch('/api/session-info');
+            const sessionData = await sessionRes.json();
+            if (sessionData.loggedIn) {
+                document.getElementById('welcome-message').textContent = `欢迎, ${sessionData.user.name}`;
+            } else {
+                window.location.href = '/login'; // 未登录则跳转
+            }
+        } catch(e) { window.location.href = '/login'; }
+
+        // 获取并填充统计卡片数据
+        async function loadStats() {
+            const res = await fetch('/api/admin/stats');
+            const stats = await res.json();
+            document.getElementById('total-users').textContent = stats.totalUsers;
+            document.getElementById('total-tokens').textContent = stats.totalTokens;
+            document.getElementById('today-calls').textContent = stats.todayCalls;
+            document.getElementById('total-calls').textContent = stats.totalCalls;
+        }
+
+        // 获取并渲染图表数据
+        async function loadChart() {
+            const res = await fetch('/api/admin/daily-stats');
+            const dailyData = await res.json();
+
+            const ctx = document.getElementById('api-calls-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dailyData.labels, // 日期
+                    datasets: [{
+                        label: 'API 调用次数',
+                        data: dailyData.data, // 次数
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+        }
+
+        loadStats();
+        loadChart();
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Elysia TTS</title>
+  <link rel="stylesheet" href="css/notification.css">
+  <link rel="stylesheet" href="css/index.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="logo">Elysia TTS</div>
+  <div class="user-nav" id="user-nav">
+  </div>
+</nav>
+
+<div class="main-content">
+  <div class="container">
+    <div class="form-group">
+      <label for="text">输入文本</label>
+      <textarea id="text" rows="5" placeholder="输入不超过100个字符..."></textarea>
+    </div>
+    <div class="form-group">
+      <label for="character">选择角色</label>
+      <select id="character">
+        <option>正在加载角色列表...</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="mediaType">选择输出格式</label>
+      <select id="mediaType">
+        <option value="wav">WAV</option>
+        <option value="mp3">MP3</option>
+      </select>
+    </div>
+    <div class="action-area">
+      <button id="synthButton" onclick="synthesize()">开始合成</button>
+      <span id="loadingIndicator" style="display:none;">正在合成中...</span>
+    </div>
+    <div class="result-area">
+      <h3>播放结果</h3>
+      <audio id="audioPlayer" controls></audio><br>
+      <a id="downloadLink" href="#" download="output.wav"></a>
+    </div>
+  </div>
+</div>
+
+<script src="js/notification.js"></script>
+<script>
+  let csrfToken = null;
+  const synthButton = document.getElementById('synthButton');
+  const loadingIndicator = document.getElementById('loadingIndicator');
+  const userNav = document.getElementById('user-nav');
+
+  // --- 新增：动态加载角色列表的函数 ---
+  async function loadCharacters() {
+    const characterSelect = document.getElementById('character');
+    try {
+      const response = await fetch('/api/characters');
+      if (!response.ok) throw new Error('Failed to load characters');
+      const characters = await response.json();
+
+      characterSelect.innerHTML = ''; // 清空"正在加载"选项
+
+      characters.forEach(char => {
+        const option = document.createElement('option');
+        option.value = char.id;
+
+        // 检查 enable 状态
+        if (char.enabled) {
+          option.textContent = char.name;
+        } else {
+          option.textContent = `${char.name} (未启用)`;
+          option.disabled = true; // 如果未启用，则禁用该选项
+        }
+
+        characterSelect.appendChild(option);
+      });
+
+    } catch (error) {
+      console.error(error);
+      characterSelect.innerHTML = '<option>加载角色失败</option>';
+      showNotification("加载角色列表失败，请刷新页面。", "error");
+    }
+  }
+
+  // updateUserUI 函数保持您原有的逻辑
+  async function updateUserUI() {
+    try {
+      const res = await fetch('/api/session-info');
+      const data = await res.json();
+      const userNav = document.getElementById('user-nav');
+      // 添加一个 API 文档的固定链接
+      let navHTML = '<a href="/api-docs">API文档</a>';
+      if (data.loggedIn) {
+        const userName = data.user.name || '已登录用户';
+        const userAvatar = "https://account.elysia.cc" + data.user.picture || 'https://account.elysia.cc/public/images/default-avatar.png';
+        navHTML += `
+          <div class="user-info">
+            <img src="${userAvatar}" alt="avatar">
+            <span>欢迎, ${userName}</span>
+          </div>
+          <a href="/manage-api">API 管理</a>
+          <a href="/logout">登出</a>
+        `;
+      } else {
+        navHTML += '<a href="/login">Sakura Account 登录</a>';
+      }
+      userNav.innerHTML = navHTML;
+    } catch (error) {
+      console.error('Failed to get session info:', error);
+      userNav.innerHTML = '<a href="/api-docs">API文档</a><a href="/login">登录</a>';
+    }
+  }
+
+  // acquireCsrfToken 函数保持您原有的逻辑
+  async function acquireCsrfToken() {
+    try {
+      const response = await fetch('/api/get-token');
+      if (!response.ok) throw new Error('Failed to get CSRF token');
+      const data = await response.json();
+      csrfToken = data.csrfToken;
+      console.log('CSRF Token acquired/refreshed.');
+      synthButton.disabled = false;
+    } catch (error) {
+      console.error('Could not fetch CSRF token:', error);
+      showNotification("页面安全凭证加载失败，请刷新页面重试。","error");
+      synthButton.disabled = true;
+    }
+  }
+
+  // synthesize 函数保持您原有的逻辑
+  async function synthesize() {
+    if (!csrfToken) {
+      showNotification("安全凭证无效，请刷新页面。","error");
+      return;
+    }
+    const text = document.getElementById('text').value.trim();
+    if (text.length === 0) {
+      showNotification("输入的文字不能为空！","error");
+      return;
+    }
+    if (text.length > 100) {
+      showNotification("输入的文字不能超过100个字符！","error");
+      return;
+    }
+
+    const audioPlayer = document.getElementById('audioPlayer');
+    const downloadLink = document.getElementById('downloadLink');
+
+    synthButton.disabled = true;
+    document.getElementById('downloadLink').style.display = 'none';
+    showNotification("生成中...","loading")
+
+    const mediaType = document.getElementById('mediaType').value;
+    const character = document.getElementById('character').value;
+
+    try {
+      const url = new URL('/api/tts', window.location.origin);
+      url.searchParams.set('text', text);
+      url.searchParams.set('media_type', mediaType);
+      url.searchParams.set('character', character);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'X-CSRF-Token': csrfToken }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: '无法解析服务器错误信息' }));
+        throw new Error(`服务器错误 ${response.status}: ${errorData.error}`);
+      }
+
+      const blob = await response.blob();
+      if (!blob.type.startsWith('audio/')) {
+        throw new Error('服务器未返回有效的音频格式，请检查后端服务。');
+      }
+
+      const audioUrl = URL.createObjectURL(blob);
+      audioPlayer.src = audioUrl;
+      document.getElementById('downloadLink').style.display = 'inline-block';
+
+      const textPrefix = text.substring(0, 5).replace(/[\\/:*?"<>|]/g, '_');
+      const fileName = `${textPrefix}_${character}.${mediaType}`;
+      downloadLink.href = audioUrl;
+      downloadLink.download = fileName;
+      downloadLink.textContent = `点击下载 ${fileName}`;
+      // 将成功提示移到 try 块的末尾
+      showNotification("成功！")
+
+    } catch (error) {
+      console.error('合成失败:', error);
+      showNotification(`合成失败: ${error.message}`,"error");
+    } finally {
+      // 从 finally 中移除 "成功" 提示，因为它无论成功失败都会执行
+      await acquireCsrfToken();
+    }
+  }
+
+  // 修改：页面加载时，执行所有初始化函数
+  document.addEventListener('DOMContentLoaded', () => {
+    updateUserUI();
+    acquireCsrfToken();
+    loadCharacters(); // 新增调用
+  });
+</script>
+
+</body>
+</html>

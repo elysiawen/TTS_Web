@@ -1,0 +1,13 @@
+# 忽略特定文件夹
+.vscode/
+.idea/
+.history/
+.idea/
+node_modules/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+.env
+database.sqlite
+characters.json

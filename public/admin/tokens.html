@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token 管理 - 管理员后台</title>
+    <style>
+        /* ... CSS 样式保持不变 ... */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
+        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; }
+        .sidebar h2 { text-align: center; color: #fff; margin-bottom: 30px; }
+        .sidebar ul { list-style: none; padding: 0; }
+        .sidebar ul li a { display: block; padding: 15px 20px; color: #ecf0f1; text-decoration: none; transition: background 0.3s; }
+        .sidebar ul li a:hover, .sidebar ul li a.active { background: #34495e; border-left: 3px solid #3498db; }
+        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); }
+        .header { margin-bottom: 30px; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .content-box { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { text-align: left; padding: 15px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; word-wrap: break-word; }
+        th { background-color: #fafafa; font-weight: 600; }
+        td code { font-family: monospace; background-color: #f7f7f7; padding: 2px 6px; border-radius: 3px; }
+        .delete-btn { background: #e74c3c; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .delete-btn:hover { background: #c0392b; }
+        .pagination { margin-top: 20px; text-align: center; }
+        .pagination button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; margin: 0 5px; }
+        .pagination button:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .pagination span { margin: 0 10px; font-weight: bold; }
+        .no-data { color: #999; }
+    </style>
+</head>
+<body>
+<nav id="sidebar-container" class="sidebar"></nav>
+
+<main class="main-content">
+    <header class="header">
+        <h1>Token 管理</h1>
+    </header>
+
+    <div class="content-box">
+        <table>
+            <thead>
+            <tr>
+                <th style="width: 8%;">Token ID</th>
+                <th>Token 名称</th>
+                <th>所有者</th>
+                <th>Token 预览</th>
+                <th>调用次数</th>
+                <th>最后使用</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="tokens-table-body">
+            </tbody>
+        </table>
+        <div id="pagination-controls" class="pagination">
+        </div>
+    </div>
+</main>
+
+<script src="/admin/js/admin.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSidebar('/admin/tokens');
+
+        const tokensTableBody = document.getElementById('tokens-table-body');
+        const paginationControls = document.getElementById('pagination-controls');
+        let currentPage = 1;
+
+        async function fetchTokens(page = 1) {
+            try {
+                const res = await fetch(`/api/admin/tokens?page=${page}&limit=10`);
+                if (!res.ok) {
+                    if(res.status === 401 || res.status === 403) window.location.href = '/';
+                    throw new Error('Failed to fetch tokens');
+                }
+                const { tokens, pagination } = await res.json();
+
+                tokensTableBody.innerHTML = '';
+
+                if (tokens.length === 0) {
+                    // 3. 修改这里的 colspan
+                    tokensTableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">没有找到任何 Token。</td></tr>';
+                } else {
+                    tokens.forEach(token => {
+                        const lastUsed = token.last_used_at
+                            ? new Date(token.last_used_at + 'Z').toLocaleString()
+                            : '<span class="no-data">未使用</span>';
+
+                        const createdAt = new Date(token.created_at + 'Z').toLocaleString();
+
+                        // 2. 新增用于显示 ID 的单元格
+                        const row = `
+                        <tr>
+                            <td>${token.id}</td>
+                            <td>${token.name}</td>
+                            <td>${token.owner_name || '<span class="no-data">未知用户</span>'}</td>
+                            <td><code>${token.token.substring(0, 8)}...</code></td>
+                            <td>${token.usage_count}</td>
+                            <td>${lastUsed}</td>
+                            <td>${createdAt}</td>
+                            <td>
+                                <button class="delete-btn" data-id="${token.id}" data-name="${token.name}">删除</button>
+                            </td>
+                        </tr>
+                    `;
+                        tokensTableBody.insertAdjacentHTML('beforeend', row);
+                    });
+                }
+
+                renderPagination(pagination);
+                currentPage = page;
+
+            } catch (error) {
+                console.error('Error fetching tokens:', error);
+                tokensTableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">加载 Token 列表失败。</td></tr>';
+            }
+        }
+
+        function renderPagination({ total, limit, page, totalPages }) {
+            if (totalPages <= 1) {
+                paginationControls.innerHTML = '';
+                return;
+            }
+            paginationControls.innerHTML = `
+            <button id="prev-page" ${page === 1 ? 'disabled' : ''}>上一页</button>
+            <span>第 ${page} / ${totalPages} 页</span>
+            <button id="next-page" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+        `;
+
+            document.getElementById('prev-page')?.addEventListener('click', () => fetchTokens(currentPage - 1));
+            document.getElementById('next-page')?.addEventListener('click', () => fetchTokens(currentPage + 1));
+        }
+
+        tokensTableBody.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                const tokenId = e.target.dataset.id;
+                const tokenName = e.target.dataset.name;
+                if (confirm(`您确定要删除 Token "${tokenName}" 吗？此操作不可逆。`)) {
+                    try {
+                        const res = await fetch(`/api/admin/tokens/${tokenId}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error('Failed to delete token');
+                        fetchTokens(currentPage); // 刷新当前页
+                    } catch (error) {
+                        console.error('Error deleting token:', error);
+                        alert('删除 Token 失败。');
+                    }
+                }
+            }
+        });
+
+        fetchTokens(1);
+    });
+</script>
+</body>
+</html>

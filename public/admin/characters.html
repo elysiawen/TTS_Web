@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>角色管理 - 管理员后台</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
+        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; z-index: 100; }
+        .sidebar h2 { text-align: center; color: #fff; margin-bottom: 30px; }
+        .sidebar ul { list-style: none; padding: 0; }
+        .sidebar ul li a { display: block; padding: 15px 20px; color: #ecf0f1; text-decoration: none; transition: background 0.3s; }
+        .sidebar ul li a:hover, .sidebar ul li a.active { background: #34495e; border-left: 3px solid #3498db; }
+        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .add-btn { background: #2ecc71; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 16px; }
+        .add-btn:hover { background: #27ae60; }
+        .content-box { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 15px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
+        th { background-color: #fafafa; font-weight: 600; }
+        td code { font-family: monospace; background-color: #f7f7f7; padding: 2px 6px; border-radius: 3px; display: block; white-space: pre-wrap; word-break: break-all; }
+        .action-btns { display: flex; gap: 10px; }
+        .edit-btn, .delete-btn { color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .edit-btn { background: #3498db; } .edit-btn:hover { background: #2980b9; }
+        .delete-btn { background: #e74c3c; } .delete-btn:hover { background: #c0392b; }
+        .status-badge { padding: 3px 8px; border-radius: 12px; font-size: 12px; color: white; }
+        .status-enabled { background: #27ae60; } .status-disabled { background: #95a5a6; }
+
+        /* --- Modal Styles --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: #fff; padding: 30px; border-radius: 8px; width: 90%; max-width: 600px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e8e8e8; padding-bottom: 15px; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; }
+        .modal-close { font-size: 24px; font-weight: bold; cursor: pointer; background: none; border: none; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { display: flex; flex-direction: column; }
+        .form-group.full-width { grid-column: 1 / -1; }
+        .form-group label { margin-bottom: 5px; font-weight: 600; }
+        .form-group input, .form-group textarea, .form-group select { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .form-group textarea { min-height: 80px; resize: vertical; }
+        .modal-footer { border-top: 1px solid #e8e8e8; padding-top: 15px; margin-top: 20px; text-align: right; }
+        .save-btn { background: #007bff; color: white; padding: 10px 20px; border-radius: 4px; cursor: pointer; border: none; font-size: 16px; }
+    </style>
+</head>
+<body>
+<nav id="sidebar-container" class="sidebar"></nav>
+<main class="main-content">
+    <header class="header">
+        <h1>角色管理</h1>
+        <button id="add-character-btn" class="add-btn">添加新角色</button>
+    </header>
+    <div class="content-box">
+        <table>
+            <thead>
+            <tr><th>ID</th><th>名称</th><th>状态</th><th>API Endpoints</th><th>操作</th></tr>
+            </thead>
+            <tbody id="characters-table-body"></tbody>
+        </table>
+    </div>
+</main>
+
+<div id="character-modal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modal-title">添加新角色</h2>
+            <button id="modal-close-btn" class="modal-close">&times;</button>
+        </div>
+        <form id="character-form">
+            <input type="hidden" id="edit-id">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="char-id">角色 ID (英文/数字)</label>
+                    <input type="text" id="char-id" required>
+                </div>
+                <div class="form-group">
+                    <label for="char-name">显示名称</label>
+                    <input type="text" id="char-name" required>
+                </div>
+                <div class="form-group full-width">
+                    <label for="char-api-url">API Endpoints (每行一个)</label>
+                    <textarea id="char-api-url" required placeholder="http://127.0.0.1:9880/tts&#10;http://127.0.0.1:9881/tts"></textarea>
+                </div>
+                <div class="form-group full-width">
+                    <label for="char-ref-audio-path">参考音频路径</label>
+                    <input type="text" id="char-ref-audio-path">
+                </div>
+                <div class="form-group full-width">
+                    <label for="char-prompt-text">参考提示词</label>
+                    <textarea id="char-prompt-text"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="char-prompt-lang">提示词语言</label>
+                    <input type="text" id="char-prompt-lang" value="zh">
+                </div>
+                <div class="form-group">
+                    <label for="char-text-lang">文本语言</label>
+                    <input type="text" id="char-text-lang" value="zh">
+                </div>
+                <div class="form-group">
+                    <label for="char-split-method">切分方法</label>
+                    <input type="text" id="char-split-method" value="cut0">
+                </div>
+                <div class="form-group">
+                    <label for="char-enabled">状态</label>
+                    <select id="char-enabled">
+                        <option value="1">启用</option>
+                        <option value="0">禁用</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="save-btn">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="/admin/js/admin.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSidebar();
+
+        const charactersTableBody = document.getElementById('characters-table-body');
+        const modal = document.getElementById('character-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const form = document.getElementById('character-form');
+        const editIdField = document.getElementById('edit-id');
+
+        async function fetchCharacters() { /* ... 此函数与上一步完全相同 ... */ }
+
+        const openModal = async (charId = null) => {
+            form.reset();
+            if (charId) {
+                modalTitle.textContent = '编辑角色';
+                editIdField.value = charId;
+                document.getElementById('char-id').disabled = true;
+
+                const res = await fetch(`/api/admin/characters/${charId}`);
+                const char = await res.json();
+
+                document.getElementById('char-id').value = char.id;
+                document.getElementById('char-name').value = char.name;
+                document.getElementById('char-enabled').value = char.enabled ? '1' : '0';
+                document.getElementById('char-ref-audio-path').value = char.ref_audio_path || '';
+                document.getElementById('char-prompt-text').value = char.prompt_text || '';
+                document.getElementById('char-prompt-lang').value = char.prompt_lang || 'zh';
+                document.getElementById('char-text-lang').value = char.text_lang || 'zh';
+                document.getElementById('char-split-method').value = char.text_split_method || 'cut0';
+
+                let urls = '';
+                try {
+                    const parsedUrls = JSON.parse(char.api_url);
+                    urls = Array.isArray(parsedUrls) ? parsedUrls.join('\n') : parsedUrls;
+                } catch(e) { urls = char.api_url; }
+                document.getElementById('char-api-url').value = urls;
+
+            } else {
+                modalTitle.textContent = '添加新角色';
+                editIdField.value = '';
+                document.getElementById('char-id').disabled = false;
+            }
+            modal.style.display = 'flex';
+        };
+
+        const closeModal = () => {
+            modal.style.display = 'none';
+        };
+
+        document.getElementById('add-character-btn').addEventListener('click', () => openModal());
+        document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        charactersTableBody.addEventListener('click', async (e) => {
+            const target = e.target;
+            if (target.classList.contains('delete-btn')) { /* ... 删除逻辑不变 ... */ }
+            else if (target.classList.contains('edit-btn')) {
+                const charId = target.dataset.id;
+                openModal(charId);
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const isEdit = !!editIdField.value;
+            const id = isEdit ? editIdField.value : document.getElementById('char-id').value.trim();
+            if (!id) {
+                alert('角色ID不能为空！');
+                return;
+            }
+
+            const apiUrlText = document.getElementById('char-api-url').value.trim();
+            const urls = apiUrlText.split('\n').map(line => line.trim()).filter(line => line);
+            const apiUrlJson = JSON.stringify(urls.length === 1 ? urls[0] : urls);
+
+            const data = {
+                id: id,
+                name: document.getElementById('char-name').value.trim(),
+                enabled: document.getElementById('char-enabled').value === '1',
+                ref_audio_path: document.getElementById('char-ref-audio-path').value.trim(),
+                prompt_text: document.getElementById('char-prompt-text').value.trim(),
+                api_url: apiUrlJson,
+                prompt_lang: document.getElementById('char-prompt-lang').value.trim(),
+                text_lang: document.getElementById('char-text-lang').value.trim(),
+                text_split_method: document.getElementById('char-split-method').value.trim()
+            };
+
+            const url = isEdit ? `/api/admin/characters/${id}` : '/api/admin/characters';
+            const method = isEdit ? 'PUT' : 'POST';
+
+            try {
+                const res = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error || '保存失败');
+                }
+                closeModal();
+                fetchCharacters();
+            } catch(error) {
+                alert(`保存失败: ${error.message}`);
+            }
+        });
+
+        // 为了简洁，这里省略了 fetchCharacters 和删除逻辑的重复代码
+        // 请确保您文件中的 fetchCharacters 和删除逻辑与上一步一致
+        // ...
+        async function fetchCharacters() {
+            try {
+                const res = await fetch(`/api/admin/characters`);
+                if (!res.ok) { if(res.status === 401 || res.status === 403) window.location.href = '/'; throw new Error('Failed to fetch characters'); }
+                const characters = await res.json();
+                charactersTableBody.innerHTML = '';
+                if (characters.length === 0) { charactersTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">数据库中没有角色数据。</td></tr>';
+                } else {
+                    characters.forEach(char => {
+                        const statusBadge = char.enabled ? '<span class="status-badge status-enabled">已启用</span>' : '<span class="status-badge status-disabled">未启用</span>';
+                        let apiUrlsHtml = '<code>N/A</code>';
+                        try {
+                            const urls = JSON.parse(char.api_url);
+                            apiUrlsHtml = (Array.isArray(urls) ? urls : [urls]).map(url => `<code>${url}</code>`).join('');
+                        } catch(e) { apiUrlsHtml = `<code>${char.api_url}</code>`; }
+                        const row = `<tr><td><code>${char.id}</code></td><td>${char.name}</td><td>${statusBadge}</td><td>${apiUrlsHtml}</td><td class="action-btns"><button class="edit-btn" data-id="${char.id}">编辑</button><button class="delete-btn" data-id="${char.id}" data-name="${char.name}">删除</button></td></tr>`;
+                        charactersTableBody.insertAdjacentHTML('beforeend', row);
+                    });
+                }
+            } catch (error) { console.error('Error fetching characters:', error); charactersTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">加载角色列表失败。</td></tr>'; }
+        }
+        charactersTableBody.addEventListener('click', async (e) => {
+            const target = e.target;
+            if (target.classList.contains('delete-btn')) {
+                const charId = target.dataset.id;
+                const charName = target.dataset.name;
+                if (confirm(`您确定要删除角色 "${charName}" (${charId}) 吗？此操作不可逆。`)) {
+                    try {
+                        const res = await fetch(`/api/admin/characters/${charId}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error('Failed to delete character');
+                        fetchCharacters();
+                    } catch (error) { console.error('Error deleting character:', error); alert('删除角色失败。'); }
+                }
+            } else if (target.classList.contains('edit-btn')) {
+                openModal(target.dataset.id);
+            }
+        });
+        fetchCharacters();
+
+    });
+</script>
+</body>
+</html>

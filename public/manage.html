@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 管理 - TTS 服务</title>
+    <link rel="stylesheet" href="css/manage.css">
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/manage-api" class="logo">Api管理</a>
+    <div class="user-nav" id="user-nav">
+    </div>
+</nav>
+
+<main class="main-content">
+    <div class="container">
+        <div class="page-header">
+            <h1>API Token 管理</h1>
+        </div>
+
+        <h2>创建新 Token</h2>
+        <form id="token-form">
+            <input type="text" id="token-name" placeholder="为您的 Token 起一个名字 (例如：我的测试脚本)" required>
+            <button type="submit">创建</button>
+        </form>
+
+        <div id="new-token-display" style="display:none; margin-top: 20px; padding: 15px; background-color: #e6f7ff; border: 1px solid #91d5ff; border-radius: 4px;">
+            <h4>新创建的 Token (请立即复制并妥善保管，此信息只会显示一次):</h4>
+            <code id="new-token-value" style="font-family: monospace; font-size: 16px; background: #f0f0f0; padding: 5px; border-radius: 3px; word-break: break-all;"></code>
+        </div>
+
+        <h2>我的 Token</h2>
+        <table id="tokens-table">
+            <thead>
+            <tr>
+                <th>名称</th>
+                <th>Token 预览</th>
+                <th>调用次数</th>
+                <th>最后调用时间</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+</main>
+
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        const userNav = document.getElementById('user-nav');
+
+        // 新增：动态更新导航栏UI的函数
+        async function updateUserUI() {
+            try {
+                const res = await fetch('/api/session-info');
+                const data = await res.json();
+
+
+                let navHTML = '<a href="/">返回主页</a>' + '<a href="/api-docs">API文档</a>';
+
+                if (data.loggedIn) {
+                    const userName = data.user.name || '已登录用户';
+                    const userAvatar = "https://account.elysia.cc" + data.user.picture || 'https://account.elysia.cc/public/images/default-avatar.png';
+                    navHTML += `
+                <div class="user-info">
+                    <img src="${userAvatar}" alt="avatar">
+                    <span>欢迎, ${userName}</span>
+                </div>
+                <a href="/logout">登出</a>
+                `;
+                } else {
+                    // 如果因为某种原因未登录，则强制跳转到登录页
+                    window.location.href = '/login';
+                }
+                userNav.innerHTML = navHTML;
+            } catch (error) {
+                console.error('Failed to get session info:', error);
+                window.location.href = '/login';
+            }
+        }
+
+        // 调用导航栏更新函数
+        await updateUserUI();
+
+        const tokenForm = document.getElementById('token-form');
+        const tokensTableBody = document.querySelector('#tokens-table tbody');
+        const newTokenDisplay = document.getElementById('new-token-display');
+        const newTokenValue = document.getElementById('new-token-value');
+
+        // ... loadTokens, 创建和删除token的逻辑保持不变 ...
+        async function loadTokens() {
+            const res = await fetch('/api/tokens');
+            if (!res.ok) {
+                // 如果获取token列表失败，可能意味着session过期，跳转到登录页
+                window.location.href = '/login';
+                return;
+            }
+            const tokens = await res.json();
+            tokensTableBody.innerHTML = '';
+            tokens.forEach(token => {
+                const lastUsed = token.last_used_at
+                    ? new Date(token.last_used_at + 'Z').toLocaleString()
+                    : '<span class="no-data">尚未使用</span>';
+                const createdAt = new Date(token.created_at + 'Z').toLocaleString();
+                const row = `
+                <tr>
+                    <td>${token.name}</td>
+                    <td class="token-value">${token.token_preview}</td>
+                    <td>${token.usage_count}</td>
+                    <td>${lastUsed}</td>
+                    <td>${createdAt}</td>
+                    <td><button class="delete-btn" data-id="${token.id}">删除</button></td>
+                </tr>
+            `;
+                tokensTableBody.insertAdjacentHTML('beforeend', row);
+            });
+        }
+        tokenForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const tokenNameInput = document.getElementById('token-name');
+            const name = tokenNameInput.value.trim();
+            if (!name) return;
+            const res = await fetch('/api/tokens', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            if (res.ok) {
+                const new_token_data = await res.json();
+                tokenNameInput.value = '';
+                newTokenValue.textContent = new_token_data.token;
+                newTokenDisplay.style.display = 'block';
+                await loadTokens();
+            } else {
+                alert('创建失败，请重试。');
+            }
+        });
+        tokensTableBody.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                const tokenId = e.target.dataset.id;
+                if (confirm('您确定要删除这个 Token 吗？此操作不可逆。')) {
+                    const res = await fetch(`/api/tokens/${tokenId}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        await loadTokens();
+                    } else {
+                        alert('删除失败，请重试。');
+                    }
+                }
+            }
+        });
+
+        // 初始加载
+        await loadTokens();
+    });
+</script>
+</body>
+</html>
