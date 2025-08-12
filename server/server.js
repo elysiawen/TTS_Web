@@ -19,6 +19,7 @@ initDb();
 const roundRobinCounters = {};
 
 const app = express();
+app.set('trust proxy', 1);
 const port = 3001;
 
 // --- 中间件配置 ---
@@ -69,19 +70,45 @@ app.get('/api/get-token', (req, res) => {
 // 3. TTS 主 API (保持不变)
 // --- 改造：从数据库读取配置进行TTS合成 ---
 app.get('/api/tts', authenticateRequest, async (req, res) => {
+
+  // 1. 准备日志所需的信息
+  const logInfo = {
+    userId: req.session.user ? req.session.user.sub : null,
+    ipAddress: req.ip, // 'trust proxy' 确保了IP的准确性
+    character: req.query.character || 'unknown',
+    requestText: req.query.text || ''
+  };
+
+  // 2. 创建一个辅助函数，用于将日志写入数据库
+  const writeFrontendLog = (statusMessage) => {
+    // 只有当请求被 authMiddleware 标记为来自前端时，才执行写入
+    if (req.isFrontendCall) {
+      const sql = `INSERT INTO frontend_logs (user_id, ip_address, character_used, request_text, status_message) VALUES (?, ?, ?, ?, ?)`;
+      db.run(sql, [logInfo.userId, logInfo.ipAddress, logInfo.character, logInfo.requestText, statusMessage], (err) => {
+        if (err) console.error("Failed to write frontend log:", err);
+      });
+    }
+  };
+
   try {
     const { text, media_type = 'wav', character = 'elysia', ...otherParams } = req.query;
 
     const [config] = await db.query("SELECT * FROM characters WHERE id = ?", [character]);
 
     if (!config || !config.enabled) {
-      return res.status(400).json({ error: '无效或未启用的角色标识符' });
+      const errorMessage = '无效或未启用的角色标识符';
+      writeFrontendLog(`Failed: ${errorMessage}`); // 记录失败日志
+      return res.status(400).json({ error: errorMessage });
     }
 
     let urls;
     try { urls = JSON.parse(config.api_url); } catch (e) { urls = config.api_url; }
     if (!Array.isArray(urls)) urls = [urls];
-    if (urls.length === 0) return res.status(500).json({ error: '配置错误：该角色没有可用的API URL。' });
+    if (urls.length === 0) {
+      const errorMessage = '配置错误：该角色没有可用的API URL。';
+      writeFrontendLog(`Failed: ${errorMessage}`); // 记录失败日志
+      return res.status(500).json({ error: errorMessage });
+    }
 
     const characterCounter = roundRobinCounters[character] || 0;
     let lastError = null;
@@ -91,25 +118,27 @@ app.get('/api/tts', authenticateRequest, async (req, res) => {
       const selectedUrl = urls[urlIndex];
       console.log(`[Load Balancer] Attempting request for '${character}' to URL: ${selectedUrl}`);
       try {
-        // --- 核心修改：从 config 对象中读取参数 ---
         const response = await axios.get(selectedUrl, {
           params: {
             text,
             media_type,
             ref_audio_path: config.ref_audio_path,
             prompt_text: config.prompt_text,
-            // 使用从数据库读取的值，如果数据库中该字段为空(null)，则使用默认值
             prompt_lang: config.prompt_lang || 'zh',
             text_lang: config.text_lang || 'zh',
             text_split_method: config.text_split_method || 'cut0',
             ...otherParams
           },
           responseType: 'arraybuffer',
-          timeout: 15000
+          timeout: 30000
         });
 
         roundRobinCounters[character] = (urlIndex + 1) % urls.length;
         res.set({ 'Content-Type': `audio/${media_type}`, 'Content-Disposition': `attachment; filename="output.${media_type}"` });
+
+        // 3. 在成功返回数据前，记录成功日志
+        writeFrontendLog('Success');
+
         return res.send(response.data);
 
       } catch (error) {
@@ -120,6 +149,9 @@ app.get('/api/tts', authenticateRequest, async (req, res) => {
 
     throw lastError || new Error("All upstream servers are unavailable.");
   } catch (error) {
+    // 4. 在最终捕获到错误时，记录失败日志
+    writeFrontendLog(`Failed: ${error.message}`);
+
     console.error('语音合成失败:', error.message);
     res.status(500).json({ error: '语音合成失败，所有后端节点均无响应。' });
   }
@@ -590,6 +622,50 @@ app.put('/api/admin/characters/:id', ensureAdmin, async (req, res) => {
   } catch (error) {
     console.error(`Failed to update character ${charId}:`, error);
     res.status(500).json({ error: 'Failed to update character.' });
+  }
+});
+
+// 新增：指向前端日志管理页面的路由
+app.get('/admin/frontend-logs', ensureAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/admin/frontend_logs.html'));
+});
+
+// --- 在管理员 API 部分，添加以下接口 ---
+
+// 获取前端使用日志 (带分页和筛选)
+app.get('/api/admin/frontend-logs', ensureAdmin, async (req, res) => {
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 15;
+  const offset = (page - 1) * limit;
+
+  const { userId, ipAddress } = req.query;
+  let whereClauses = [];
+  let params = [];
+
+  if (userId) { whereClauses.push('l.user_id = ?'); params.push(userId); }
+  if (ipAddress) { whereClauses.push('l.ip_address = ?'); params.push(ipAddress); }
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  try {
+    const totalSql = `SELECT COUNT(*) as total FROM frontend_logs l ${whereSql}`;
+    const [totalResult] = await db.query(totalSql, params);
+    const total = totalResult.total;
+    const totalPages = Math.ceil(total / limit);
+
+    const logsSql = `
+            SELECT l.*, u.name as owner_name
+            FROM frontend_logs l
+            LEFT JOIN users u ON l.user_id = u.id
+            ${whereSql}
+            ORDER BY l.id DESC
+            LIMIT ? OFFSET ?
+        `;
+    const logs = await db.query(logsSql, [...params, limit, offset]);
+
+    res.json({ logs, pagination: { total, limit, page, totalPages } });
+  } catch (error) {
+    console.error("Failed to fetch frontend logs:", error);
+    res.status(500).json({ error: 'Failed to load frontend logs.' });
   }
 });
 

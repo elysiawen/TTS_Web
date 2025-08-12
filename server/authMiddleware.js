@@ -51,10 +51,15 @@ function checkCsrf(req, res, next) {
         const csrfTokenFromSession = req.session.csrfToken;
         if (csrfTokenFromHeader && csrfTokenFromSession && csrfTokenFromHeader === csrfTokenFromSession) {
             delete req.session.csrfToken;
+
+            // --- 核心修改：为请求对象添加一个标记 ---
+            req.isFrontendCall = true;
+
             return next();
         }
     }
     res.status(401).json({ error: 'Unauthorized: A valid API token or a valid session is required.' });
 }
+
 
 module.exports = authenticateRequest;

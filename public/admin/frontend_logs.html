@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>前端日志 - 管理员后台</title>
+    <style>
+        /* CSS 样式与 logs.html 页面基本一致 */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
+        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; z-index: 100; }
+        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); }
+        .content-box { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        h1 { margin: 0 0 30px 0; font-size: 28px; }
+        .filters { display: flex; gap: 15px; margin-bottom: 20px; align-items: center; }
+        .filters input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .filters button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; word-wrap: break-word; }
+        th { background-color: #fafafa; font-weight: 600; }
+        .text-cell { max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
+        .status-success { color: #27ae60; }
+        .status-failed { color: #e74c3c; }
+        .pagination { margin-top: 20px; text-align: center; }
+        /* 其他样式省略，可从 logs.html 复制 */
+    </style>
+</head>
+<body>
+<nav id="sidebar-container" class="sidebar"></nav>
+
+<main class="main-content">
+    <h1>前端使用日志</h1>
+    <div class="content-box">
+        <div class="filters">
+            <input type="text" id="user-id-filter" placeholder="按用户 ID (sub) 筛选">
+            <input type="text" id="ip-filter" placeholder="按 IP 地址筛选">
+            <button id="filter-btn">筛选</button>
+            <button id="clear-filter-btn">清除</button>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th style="width: 7%;">Log ID</th>
+                <th style="width: 13%;">用户</th>
+                <th style="width: 12%;">IP 地址</th>
+                <th style="width: 25%;">合成文本</th>
+                <th style="width: 13%;">使用角色</th>
+                <th style="width: 15%;">状态</th>
+                <th style="width: 15%;">时间</th>
+            </tr>
+            </thead>
+            <tbody id="logs-table-body"></tbody>
+        </table>
+        <div id="pagination-controls" class="pagination"></div>
+    </div>
+</main>
+
+<script src="/admin/js/admin.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSidebar('/admin/frontend-logs');
+
+        const logsTableBody = document.getElementById('logs-table-body');
+        const paginationControls = document.getElementById('pagination-controls');
+        const userIdFilter = document.getElementById('user-id-filter');
+        const ipFilter = document.getElementById('ip-filter');
+        const filterBtn = document.getElementById('filter-btn');
+        const clearFilterBtn = document.getElementById('clear-filter-btn');
+
+        let currentPage = 1;
+        let currentFilters = {};
+
+        async function fetchLogs(page = 1, filters = {}) {
+            try {
+                const params = new URLSearchParams({ page, limit: 15, ...filters });
+                const res = await fetch(`/api/admin/frontend-logs?${params.toString()}`);
+                if (!res.ok) throw new Error('Failed to fetch logs');
+                const { logs, pagination } = await res.json();
+
+                logsTableBody.innerHTML = '';
+                if (logs.length === 0) {
+                    logsTableBody.innerHTML = '<tr><td colspan="7" style="text-align:center;">没有找到符合条件的记录。</td></tr>';
+                } else {
+                    logs.forEach(log => {
+                        const timestamp = new Date(log.request_timestamp + 'Z').toLocaleString('zh-CN', { hour12: false });
+                        const requestText = log.request_text || '';
+                        const statusClass = log.status_message === 'Success' ? 'status-success' : 'status-failed';
+
+                        const row = `
+                        <tr>
+                            <td>${log.id}</td>
+                            <td>${log.owner_name || (log.user_id ? `<span class="no-data" title="${log.user_id}">${log.user_id.substring(0,8)}...</span>` : '<span class="no-data">访客</span>')}</td>
+                            <td>${log.ip_address}</td>
+                            <td class="text-cell" title="${requestText}">${requestText}</td>
+                            <td><code>${log.character_used || 'N/A'}</code></td>
+                            <td class="${statusClass}">${log.status_message}</td>
+                            <td>${timestamp}</td>
+                        </tr>
+                    `;
+                        logsTableBody.insertAdjacentHTML('beforeend', row);
+                    });
+                }
+
+                renderPagination(pagination);
+                currentPage = page;
+                currentFilters = filters;
+
+            } catch (error) {
+                console.error('Error fetching logs:', error);
+                logsTableBody.innerHTML = '<tr><td colspan="7" style="text-align:center;">加载日志列表失败。</td></tr>';
+            }
+        }
+
+        function renderPagination({ totalPages, page }) {
+            if (totalPages <= 1) { paginationControls.innerHTML = ''; return; }
+            paginationControls.innerHTML = `<button id="prev-page" ${page === 1 ? 'disabled' : ''}>上一页</button><span>第 ${page} / ${totalPages} 页</span><button id="next-page" ${page >= totalPages ? 'disabled' : ''}>下一页</button>`;
+            document.getElementById('prev-page')?.addEventListener('click', () => fetchLogs(currentPage - 1, currentFilters));
+            document.getElementById('next-page')?.addEventListener('click', () => fetchLogs(currentPage + 1, currentFilters));
+        }
+
+        function applyFilters() {
+            const filters = {};
+            if (userIdFilter.value.trim()) filters.userId = userIdFilter.value.trim();
+            if (ipFilter.value.trim()) filters.ipAddress = ipFilter.value.trim();
+            fetchLogs(1, filters);
+        }
+
+        filterBtn.addEventListener('click', applyFilters);
+        clearFilterBtn.addEventListener('click', () => {
+            userIdFilter.value = '';
+            ipFilter.value = '';
+            fetchLogs(1, {});
+        });
+
+        fetchLogs(1);
+    });
+</script>
+</body>
+</html>

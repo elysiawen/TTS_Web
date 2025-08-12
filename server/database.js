@@ -94,6 +94,17 @@ const initDb = () => {
                 addColumn('characters', 'text_split_method', 'TEXT');
             }
         });
+
+        db.run(`CREATE TABLE IF NOT EXISTS frontend_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,                         -- 用户ID, 可以为空 (未登录用户)
+        ip_address TEXT,                      -- 请求者IP地址
+        request_text TEXT,                    -- 合成的文本
+        character_used TEXT,                  -- 使用的角色
+        status_message TEXT,                  -- 状态信息 ('Success' 或 错误信息)
+        request_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+    )`);
     });
 };
 

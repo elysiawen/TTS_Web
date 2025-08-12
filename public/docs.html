@@ -134,7 +134,7 @@
         <section id="introduction">
             <h1>简介</h1>
             <p>本文档旨在帮助开发者使用 TTS (Text-to-Speech) API 服务。通过本 API，您可以将文本转换为高质量的语音音频文件。所有 API 调用都需要通过身份验证。</p>
-            <p><b>API 基础 URL:</b> <code>http://localhost:3001</code> (在生产环境中会更改)</p>
+            <p><b>API 基础 URL:</b> <code>http://tts.elysia.cc/code> (在生产环境中会更改)</p>
         </section>
 
         <section id="authentication">
@@ -220,19 +220,19 @@
 
             <h3 id="example-curl">cURL 示例</h3>
             <pre><code># 使用请求头认证 (推荐)
-curl "http://localhost:3001/api/tts?text=你好世界" \
+curl "http://tts.elysia.cc/api/tts?text=你好世界" \
   -H "Authorization: Bearer YOUR_API_TOKEN" \
   --output output.wav
 
 # 使用URL参数认证
-curl "http://localhost:3001/api/tts?text=你好世界&api_token=YOUR_API_TOKEN" \
+curl "http://tts.elysia.cc/api/tts?text=你好世界&api_token=YOUR_API_TOKEN" \
   --output output.wav</code></pre>
 
             <h3 id="example-js">JavaScript (fetch) 示例</h3>
             <pre><code>const apiToken = 'YOUR_API_TOKEN';
 const text = '在JavaScript中测试API。';
 
-const url = new URL('http://localhost:3001/api/tts');
+const url = new URL('http://tts.elysia.cc/api/tts');
 url.searchParams.set('text', text);
 
 async function getSpeech() {
@@ -263,7 +263,7 @@ getSpeech();</code></pre>
             <h3 id="example-python">Python (requests) 示例</h3>
             <pre><code>import requests
 
-api_url = "http://localhost:3001/api/tts"
+api_url = "http://tts.elysia.cc/api/tts"
 api_token = "YOUR_API_TOKEN"
 
 params = { "text": "使用 Python 来测试 API。" }
