@@ -317,74 +317,67 @@ app.get('/admin', ensureAdmin, (req, res) => {
 
 // --- 新增：为管理员仪表盘提供数据的 API ---
 
-// 1. 获取核心统计数据
-app.get('/api/admin/stats', ensureAdmin, async (req, res) => {
+// --- 新增：为全新仪表盘提供所有数据的统一接口 ---
+// 获取全新仪表盘所有数据的统一接口
+app.get('/api/admin/dashboard-data', ensureAdmin, async (req, res) => {
   try {
-    // 并行执行所有统计查询
-    const results = await Promise.all([
+    const [
+      userCountResult,
+      tokenCountResult,
+      totalCallsResult,
+      todayCallsResult,
+      frontendCallsResult,
+      todayFrontendCallsResult, // <-- 新增
+      dailyStats,
+      recentLogs,
+      topCharacters
+    ] = await Promise.all([
       db.query('SELECT COUNT(*) as count FROM users'),
       db.query('SELECT COUNT(*) as count FROM api_tokens'),
       db.query('SELECT COUNT(*) as count FROM usage_logs'),
-      db.query("SELECT COUNT(*) as count FROM usage_logs WHERE DATE(request_timestamp) = DATE('now', 'localtime')")
+      db.query("SELECT COUNT(*) as count FROM usage_logs WHERE request_timestamp >= date('now', 'start of day', 'localtime') AND request_timestamp < date('now', '+1 day', 'start of day', 'localtime')"),
+      db.query('SELECT COUNT(*) as count FROM frontend_logs'),
+      // <-- 新增：查询前端日志中今天的调用次数
+      db.query("SELECT COUNT(*) as count FROM frontend_logs WHERE request_timestamp >= date('now', 'start of day', 'localtime') AND request_timestamp < date('now', '+1 day', 'start of day', 'localtime')"),
+      db.query(`
+        SELECT DATE(request_timestamp) as date, COUNT(*) as count
+        FROM usage_logs WHERE request_timestamp >= DATE('now', '-6 days', 'localtime')
+        GROUP BY date ORDER BY date ASC
+      `),
+      db.query(`
+        SELECT l.id, l.request_timestamp, u.name as owner_name, tk.name as token_name
+        FROM usage_logs l LEFT JOIN users u ON l.user_id = u.id LEFT JOIN api_tokens tk ON l.token_id = tk.id
+        ORDER BY l.id DESC LIMIT 5
+      `),
+      db.query(`
+                SELECT character_used, COUNT(*) as count 
+                FROM usage_logs WHERE character_used IS NOT NULL 
+                GROUP BY character_used ORDER BY count DESC LIMIT 5
+            `)
     ]);
 
-    // db.query 返回的是一个数组，例如 [{ count: 10 }]
-    // 所以我们需要先取数组的第一个元素 [0]，然后再取 .count 属性
-    const totalUsers = results[0][0].count;
-    const totalTokens = results[1][0].count;
-    const totalCalls = results[2][0].count;
-    const todayCalls = results[3][0].count;
+    // --- 准备图表数据 (不变) ---
+    const labels = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - i); return d.toISOString().split('T')[0]; }).reverse();
+    const chartData = labels.map(label => { const found = dailyStats.find(row => row.date === label); return found ? found.count : 0; });
 
+    // --- 组装最终结果 ---
     res.json({
-      totalUsers,
-      totalTokens,
-      totalCalls,
-      todayCalls
+      stats: {
+        totalUsers: userCountResult[0].count,
+        totalTokens: tokenCountResult[0].count,
+        totalCalls: totalCallsResult[0].count,
+        todayCalls: todayCallsResult[0].count,
+        frontendCalls: frontendCallsResult[0].count,
+        todayFrontendCalls: todayFrontendCallsResult[0].count // <-- 新增
+      },
+      chartData: { labels, data: chartData },
+      recentLogs,
+      topCharacters
     });
-  } catch (error) {
-    console.error("Error fetching admin stats:", error);
-    res.status(500).json({ error: "Failed to load statistics." });
-  }
-});
-
-
-// 2. 获取最近7天的调用数据用于图表
-app.get('/api/admin/daily-stats', ensureAdmin, async (req, res) => {
-  try {
-    // 使用更现代的 Promise 封装来替代回调
-    const promiseQuery = (sql) => new Promise((resolve, reject) => {
-      db.all(sql, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
-
-    const rows = await promiseQuery(`
-            SELECT DATE(request_timestamp) as date, COUNT(*) as count 
-            FROM usage_logs 
-            WHERE request_timestamp >= DATE('now', '-6 days', 'localtime')
-            GROUP BY date 
-            ORDER BY date ASC
-        `);
-
-    // 生成最近7天的所有日期标签
-    const labels = [...Array(7)].map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      return d.toISOString().split('T')[0];
-    }).reverse();
-
-    // 将数据库数据映射到日期标签上
-    const data = labels.map(label => {
-      const found = rows.find(row => row.date === label);
-      return found ? found.count : 0;
-    });
-
-    res.json({ labels, data });
 
   } catch (error) {
-    console.error("Error fetching daily stats:", error);
-    res.status(500).json({ error: "Failed to load daily statistics." });
+    console.error("Error fetching dashboard data:", error);
+    res.status(500).json({ error: "Failed to load dashboard data." });
   }
 });
 

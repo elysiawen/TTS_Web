@@ -105,8 +105,16 @@ const initDb = () => {
         request_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
     )`);
+
+        console.log("Checking and creating indexes...");
+        db.run(`CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON usage_logs (request_timestamp)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_logs_user_id ON usage_logs (user_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_logs_token_id ON usage_logs (token_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_tokens_user_id ON api_tokens (user_id)`);
     });
 };
+
+
 
 // 为 db 对象添加一个 .query 方法，使其支持 Promise (async/await)
 db.query = function (sql, params) {

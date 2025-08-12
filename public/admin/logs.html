@@ -4,35 +4,46 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>使用记录 - 管理员后台</title>
+    <link rel="stylesheet" href="/admin/css/admin.css">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
-        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; box-sizing: border-box; }
-        .sidebar h2 { text-align: center; color: #fff; margin-bottom: 30px; }
-        .sidebar ul { list-style: none; padding: 0; margin: 0; }
-        .sidebar ul li a { display: block; padding: 15px 20px; color: #ecf0f1; text-decoration: none; transition: background 0.3s, border-left 0.3s; border-left: 3px solid transparent; }
-        .sidebar ul li a:hover { background: #34495e; }
-        .sidebar ul li a.active { background: #34495e; border-left: 3px solid #3498db; }
-        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); box-sizing: border-box; }
-        .header { margin-bottom: 30px; }
-        .header h1 { margin: 0; font-size: 28px; color: #2c3e50; }
-        .content-box { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .filters { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; align-items: center; }
-        .filters input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-        .filters button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
-        .filters button:hover { background: #2980b9; }
-        .filters button#clear-filter-btn { background-color: #95a5a6; }
-        .filters button#clear-filter-btn:hover { background-color: #7f8c8d; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; word-wrap: break-word; }
-        th { background-color: #fafafa; font-weight: 600; font-size: 14px; }
-        td { font-size: 14px; }
-        td code { font-family: monospace; background-color: #f7f7f7; padding: 2px 6px; border-radius: 3px; }
-        .text-cell { max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
-        .no-data { color: #999; }
-        .pagination { margin-top: 20px; text-align: center; }
-        .pagination button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; margin: 0 5px; }
-        .pagination button:disabled { background: #bdc3c7; cursor: not-allowed; }
-        .pagination span { margin: 0 10px; font-weight: bold; vertical-align: middle; }
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+        .filters input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .filters button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .filters button:hover {
+            background: #2980b9;
+        }
+        .filters button#clear-filter-btn {
+            background-color: #95a5a6;
+        }
+        .filters button#clear-filter-btn:hover {
+            background-color: #7f8c8d;
+        }
+        .text-cell {
+            max-width: 250px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: help;
+        }
     </style>
 </head>
 <body>
