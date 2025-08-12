@@ -4,27 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>账户管理 - 管理员后台</title>
+    <link rel="stylesheet" href="/admin/css/admin.css">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
-        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; }
-        .sidebar h2 { text-align: center; color: #fff; margin-bottom: 30px; }
-        .sidebar ul { list-style: none; padding: 0; }
-        .sidebar ul li a { display: block; padding: 15px 20px; color: #ecf0f1; text-decoration: none; transition: background 0.3s; }
-        .sidebar ul li a:hover, .sidebar ul li a.active { background: #34495e; border-left: 3px solid #3498db; }
-        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); }
-        .header { margin-bottom: 30px; }
-        .header h1 { margin: 0; font-size: 28px; }
-        .content-box { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 15px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
-        th { background-color: #fafafa; font-weight: 600; }
-        td img.avatar { width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; }
-        .delete-btn { background: #e74c3c; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
-        .delete-btn:hover { background: #c0392b; }
-        .pagination { margin-top: 20px; text-align: center; }
-        .pagination button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; margin: 0 5px; }
-        .pagination button:disabled { background: #bdc3c7; cursor: not-allowed; }
-        .pagination span { margin: 0 10px; font-weight: bold; }
+        td img.avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
     </style>
 </head>
 <body>
