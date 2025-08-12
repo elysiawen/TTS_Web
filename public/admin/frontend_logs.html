@@ -6,30 +6,25 @@
     <title>前端日志 - 管理员后台</title>
     <link rel="stylesheet" href="/admin/css/admin.css">
     <style>
-        /* CSS 样式与 logs.html 页面基本一致 */
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; }
-        .sidebar { width: 220px; background: #2c3e50; color: #ecf0f1; height: 100vh; position: fixed; top: 0; left: 0; padding-top: 20px; z-index: 100; }
-        .main-content { margin-left: 220px; padding: 30px; width: calc(100% - 220px); }
-        .content-box { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        h1 { margin: 0 0 30px 0; font-size: 28px; }
-        .filters { display: flex; gap: 15px; margin-bottom: 20px; align-items: center; }
+        .filters { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; align-items: center; }
         .filters input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-        .filters button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; word-wrap: break-word; }
-        th { background-color: #fafafa; font-weight: 600; }
+        .filters button { background: #3498db; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
+        .filters button:hover { background: #2980b9; }
+        .filters button#clear-filter-btn { background-color: #95a5a6; }
+        .filters button#clear-filter-btn:hover { background-color: #7f8c8d; }
         .text-cell { max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
-        .status-success { color: #27ae60; }
+        .status-success { color: #27ae60; font-weight: bold; }
         .status-failed { color: #e74c3c; }
-        .pagination { margin-top: 20px; text-align: center; }
-        /* 其他样式省略，可从 logs.html 复制 */
     </style>
 </head>
 <body>
 <nav id="sidebar-container" class="sidebar"></nav>
 
 <main class="main-content">
-    <h1>前端使用日志</h1>
+    <header class="header">
+        <h1>前端使用日志</h1>
+    </header>
+
     <div class="content-box">
         <div class="filters">
             <input type="text" id="user-id-filter" placeholder="按用户 ID (sub) 筛选">
@@ -70,6 +65,24 @@
         let currentPage = 1;
         let currentFilters = {};
 
+        // --- “智能”formatDate函数，兼容两种数据库格式 ---
+        function formatDate(dateString) {
+            if (!dateString) return '<span class="no-data">N/A</span>';
+            let dateObj;
+            if (dateString.includes('T') && dateString.endsWith('Z')) {
+                // 处理 ISO 8601 UTC 格式 (来自MySQL)
+                dateObj = new Date(dateString);
+            } else {
+                // 处理 'YYYY-MM-DD HH:MM:SS' 格式 (来自SQLite)
+                const compliantDateString = dateString.replace(' ', 'T') + 'Z';
+                dateObj = new Date(compliantDateString);
+            }
+            if (isNaN(dateObj.getTime())) {
+                return '<span class="no-data">无效日期</span>';
+            }
+            return dateObj.toLocaleString('zh-CN', { hour12: false });
+        }
+
         async function fetchLogs(page = 1, filters = {}) {
             try {
                 const params = new URLSearchParams({ page, limit: 15, ...filters });
@@ -82,21 +95,22 @@
                     logsTableBody.innerHTML = '<tr><td colspan="7" style="text-align:center;">没有找到符合条件的记录。</td></tr>';
                 } else {
                     logs.forEach(log => {
-                        const timestamp = new Date(log.request_timestamp + 'Z').toLocaleString('zh-CN', { hour12: false });
+                        // --- 使用新的 formatDate 函数 ---
+                        const timestamp = formatDate(log.request_timestamp);
                         const requestText = log.request_text || '';
                         const statusClass = log.status_message === 'Success' ? 'status-success' : 'status-failed';
 
                         const row = `
-                        <tr>
-                            <td>${log.id}</td>
-                            <td>${log.owner_name || (log.user_id ? `<span class="no-data" title="${log.user_id}">${log.user_id.substring(0,8)}...</span>` : '<span class="no-data">访客</span>')}</td>
-                            <td>${log.ip_address}</td>
-                            <td class="text-cell" title="${requestText}">${requestText}</td>
-                            <td><code>${log.character_used || 'N/A'}</code></td>
-                            <td class="${statusClass}">${log.status_message}</td>
-                            <td>${timestamp}</td>
-                        </tr>
-                    `;
+                            <tr>
+                                <td>${log.id}</td>
+                                <td>${log.owner_name || (log.user_id ? `<span class="no-data" title="${log.user_id}">${log.user_id.substring(0,8)}...</span>` : '<span class="no-data">访客</span>')}</td>
+                                <td>${log.ip_address}</td>
+                                <td class="text-cell" title="${requestText}">${requestText}</td>
+                                <td><code>${log.character_used || 'N/A'}</code></td>
+                                <td class="${statusClass}">${log.status_message}</td>
+                                <td>${timestamp}</td>
+                            </tr>
+                        `;
                         logsTableBody.insertAdjacentHTML('beforeend', row);
                     });
                 }

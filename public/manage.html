@@ -3,8 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API 管理 - TTS 服务</title>
-    <link rel="stylesheet" href="css/manage.css">
+    <title>API Token 管理</title>
+    <style>
+        /* 为了方便预览，我将一些基本样式放在这里 */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; margin: 0; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar { width: 100%; background-color: rgba(255, 255, 255, 0.9); box-shadow: 0 2px 4px rgba(0,0,0,0.1); padding: 0 20px; height: 60px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; backdrop-filter: blur(5px); position: sticky; top: 0; z-index: 1000; }
+        .navbar .logo { font-weight: bold; font-size: 20px; color: #007bff; text-decoration: none; }
+        .navbar .user-nav { display: flex; align-items: center; gap: 15px; }
+        .navbar .user-nav a { text-decoration: none; color: #007bff; font-weight: 500; padding: 8px 12px; border-radius: 6px; transition: background-color 0.2s; }
+        .navbar .user-nav a:hover { background-color: rgba(0, 123, 255, 0.1); }
+        .navbar .user-nav .user-info { display: flex; align-items: center; gap: 10px; }
+        .navbar .user-nav .user-info img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+        .main-content { padding: 40px 20px; flex-grow: 1; }
+        .container { max-width: 900px; margin: 0 auto; background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+        h1, h2 { color: #2c3e50; }
+        h2 { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 30px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e8e8e8; }
+        th { background-color: #fafafa; }
+        #new-token-display { display:none; margin-top: 20px; padding: 15px; background-color: #e6f7ff; border: 1px solid #91d5ff; border-radius: 4px; }
+        code { font-family: monospace; background: #f0f0f0; padding: 5px; border-radius: 3px; word-break: break-all; }
+        form {display:flex; gap:10px; margin-top:15px;}
+        input[type="text"] {flex-grow:1; padding:10px; border:1px solid #ccc; border-radius:4px; font-size:16px;}
+        button[type="submit"] {padding:10px 20px; background-color:#007bff; color:#fff; border:none; border-radius:4px; cursor:pointer;}
+        .delete-btn { background-color: #e74c3c; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .no-data { color: #999; }
+    </style>
 </head>
 <body>
 
@@ -19,6 +43,7 @@
         <div class="page-header">
             <h1>API Token 管理</h1>
         </div>
+        <p>您可以在这里创建和管理用于访问 TTS 服务的 API Token。</p>
 
         <h2>创建新 Token</h2>
         <form id="token-form">
@@ -26,9 +51,9 @@
             <button type="submit">创建</button>
         </form>
 
-        <div id="new-token-display" style="display:none; margin-top: 20px; padding: 15px; background-color: #e6f7ff; border: 1px solid #91d5ff; border-radius: 4px;">
+        <div id="new-token-display">
             <h4>新创建的 Token (请立即复制并妥善保管，此信息只会显示一次):</h4>
-            <code id="new-token-value" style="font-family: monospace; font-size: 16px; background: #f0f0f0; padding: 5px; border-radius: 3px; word-break: break-all;"></code>
+            <code id="new-token-value"></code>
         </div>
 
         <h2>我的 Token</h2>
@@ -53,27 +78,23 @@
     document.addEventListener('DOMContentLoaded', async () => {
         const userNav = document.getElementById('user-nav');
 
-        // 新增：动态更新导航栏UI的函数
         async function updateUserUI() {
             try {
                 const res = await fetch('/api/session-info');
                 const data = await res.json();
-
-
-                let navHTML = '<a href="/">返回主页</a>' + '<a href="/api-docs">API文档</a>';
+                let navHTML = '<a href="/">返回主页</a>';
 
                 if (data.loggedIn) {
                     const userName = data.user.name || '已登录用户';
                     const userAvatar = "https://account.elysia.cc" + data.user.picture || 'https://account.elysia.cc/public/images/default-avatar.png';
                     navHTML += `
-                <div class="user-info">
-                    <img src="${userAvatar}" alt="avatar">
-                    <span>欢迎, ${userName}</span>
-                </div>
-                <a href="/logout">登出</a>
-                `;
+                        <div class="user-info">
+                            <img src="${userAvatar}" alt="avatar">
+                            <span>欢迎, ${userName}</span>
+                        </div>
+                        <a href="/logout">登出</a>
+                    `;
                 } else {
-                    // 如果因为某种原因未登录，则强制跳转到登录页
                     window.location.href = '/login';
                 }
                 userNav.innerHTML = navHTML;
@@ -83,7 +104,6 @@
             }
         }
 
-        // 调用导航栏更新函数
         await updateUserUI();
 
         const tokenForm = document.getElementById('token-form');
@@ -91,34 +111,63 @@
         const newTokenDisplay = document.getElementById('new-token-display');
         const newTokenValue = document.getElementById('new-token-value');
 
-        // ... loadTokens, 创建和删除token的逻辑保持不变 ...
+        // --- 新增：一个安全的日期格式化函数 ---
+        function formatDate(dateString) {
+            if (!dateString) {
+                return '<span class="no-data">尚未使用</span>';
+            }
+
+            let dateObj;
+
+            // 检查日期字符串是否为标准的 ISO UTC 格式 (包含 'T' 和 'Z')
+            if (dateString.includes('T') && dateString.endsWith('Z')) {
+                // --- 处理 MySQL 格式 ---
+                // 这是标准格式，可以直接解析
+                dateObj = new Date(dateString);
+            } else {
+                // --- 处理 SQLite 格式 ---
+                // 这是 'YYYY-MM-DD HH:MM:SS' 格式，我们知道它是 UTC 时间
+                // 需要先替换空格为 'T'，再补充 'Z'，以确保被正确解析为 UTC
+                const compliantDateString = dateString.replace(' ', 'T') + 'Z';
+                dateObj = new Date(compliantDateString);
+            }
+
+            // 检查日期是否有效，防止显示 Invalid Date
+            if (isNaN(dateObj.getTime())) {
+                return '<span class="no-data">无效日期</span>';
+            }
+
+            // 将Date对象转换为本地化的时间字符串
+            return dateObj.toLocaleString('zh-CN', { hour12: false });
+        }
+
         async function loadTokens() {
             const res = await fetch('/api/tokens');
             if (!res.ok) {
-                // 如果获取token列表失败，可能意味着session过期，跳转到登录页
                 window.location.href = '/login';
                 return;
             }
             const tokens = await res.json();
             tokensTableBody.innerHTML = '';
             tokens.forEach(token => {
-                const lastUsed = token.last_used_at
-                    ? new Date(token.last_used_at + 'Z').toLocaleString()
-                    : '<span class="no-data">尚未使用</span>';
-                const createdAt = new Date(token.created_at + 'Z').toLocaleString();
+                // --- 核心修改：使用新的 formatDate 函数 ---
+                const lastUsed = formatDate(token.last_used_at);
+                const createdAt = formatDate(token.created_at);
+
                 const row = `
                 <tr>
                     <td>${token.name}</td>
-                    <td class="token-value">${token.token_preview}</td>
+                    <td><code>${token.token_preview}</code></td>
                     <td>${token.usage_count}</td>
                     <td>${lastUsed}</td>
                     <td>${createdAt}</td>
-                    <td><button class="delete-btn" data-id="${token.id}">删除</button></td>
+                    <td><button class="delete-btn" data-id="${token.id}" data-name="${token.name}">删除</button></td>
                 </tr>
             `;
                 tokensTableBody.insertAdjacentHTML('beforeend', row);
             });
         }
+
         tokenForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const tokenNameInput = document.getElementById('token-name');
@@ -139,10 +188,12 @@
                 alert('创建失败，请重试。');
             }
         });
+
         tokensTableBody.addEventListener('click', async (e) => {
             if (e.target.classList.contains('delete-btn')) {
                 const tokenId = e.target.dataset.id;
-                if (confirm('您确定要删除这个 Token 吗？此操作不可逆。')) {
+                const tokenName = e.target.dataset.name; // 从 data 属性获取名称
+                if (confirm(`您确定要删除 Token "${tokenName}" 吗？此操作不可逆。`)) {
                     const res = await fetch(`/api/tokens/${tokenId}`, { method: 'DELETE' });
                     if (res.ok) {
                         await loadTokens();
@@ -153,7 +204,6 @@
             }
         });
 
-        // 初始加载
         await loadTokens();
     });
 </script>

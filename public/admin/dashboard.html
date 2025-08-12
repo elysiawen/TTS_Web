@@ -7,8 +7,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
     <link rel="stylesheet" href="/admin/css/admin.css">
-
     <style>
+        /* CSS 样式与之前完全相同，无需改动 */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 30px; }
         .stat-card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; align-items: center; }
         .stat-card .icon { width: 50px; height: 50px; border-radius: 50%; display: flex; justify-content: center; align-items: center; margin-right: 20px; flex-shrink: 0; }
@@ -42,30 +42,12 @@
     </header>
 
     <div class="stats-grid">
-        <div class="stat-card">
-            <div class="icon icon-users"><i data-feather="users"></i></div>
-            <div><h3>总用户数</h3><p id="total-users" class="stat-number">...</p></div>
-        </div>
-        <div class="stat-card">
-            <div class="icon icon-tokens"><i data-feather="key"></i></div>
-            <div><h3>总 Token 数</h3><p id="total-tokens" class="stat-number">...</p></div>
-        </div>
-        <div class="stat-card">
-            <div class="icon icon-frontend"><i data-feather="monitor"></i></div>
-            <div><h3>前端总调用</h3><p id="frontend-calls" class="stat-number">...</p></div>
-        </div>
-        <div class="stat-card">
-            <div class="icon icon-today-frontend"><i data-feather="activity"></i></div>
-            <div><h3>前端今日调用</h3><p id="today-frontend-calls" class="stat-number">...</p></div>
-        </div>
-        <div class="stat-card">
-            <div class="icon icon-total"><i data-feather="bar-chart-2"></i></div>
-            <div><h3>Token 总调用</h3><p id="total-calls" class="stat-number">...</p></div>
-        </div>
-        <div class="stat-card">
-            <div class="icon icon-today"><i data-feather="zap"></i></div>
-            <div><h3>Token 今日调用</h3><p id="today-calls" class="stat-number">...</p></div>
-        </div>
+        <div class="stat-card"><div class="icon icon-users"><i data-feather="users"></i></div><div><h3>总用户数</h3><p id="total-users" class="stat-number">...</p></div></div>
+        <div class="stat-card"><div class="icon icon-tokens"><i data-feather="key"></i></div><div><h3>总 Token 数</h3><p id="total-tokens" class="stat-number">...</p></div></div>
+        <div class="stat-card"><div class="icon icon-frontend"><i data-feather="monitor"></i></div><div><h3>前端总调用</h3><p id="frontend-calls" class="stat-number">...</p></div></div>
+        <div class="stat-card"><div class="icon icon-today-frontend"><i data-feather="activity"></i></div><div><h3>前端今日调用</h3><p id="today-frontend-calls" class="stat-number">...</p></div></div>
+        <div class="stat-card"><div class="icon icon-total"><i data-feather="bar-chart-2"></i></div><div><h3>Token 总调用</h3><p id="total-calls" class="stat-number">...</p></div></div>
+        <div class="stat-card"><div class="icon icon-today"><i data-feather="zap"></i></div><div><h3>Token 今日调用</h3><p id="today-calls" class="stat-number">...</p></div></div>
     </div>
 
     <div class="dashboard-grid">
@@ -74,14 +56,8 @@
             <canvas id="api-calls-chart"></canvas>
         </div>
         <div class="widgets-column">
-            <div class="widget">
-                <h3>热门角色 (按Token调用)</h3>
-                <ul id="top-characters-list"></ul>
-            </div>
-            <div class="widget" style="margin-top: 20px;">
-                <h3>近期 Token 活动</h3>
-                <ul id="recent-activity-list" class="activity-log"></ul>
-            </div>
+            <div class="widget"><h3>热门角色 (按Token调用)</h3><ul id="top-characters-list"></ul></div>
+            <div class="widget" style="margin-top: 20px;"><h3>近期 Token 活动</h3><ul id="recent-activity-list" class="activity-log"></ul></div>
         </div>
     </div>
 </main>
@@ -91,58 +67,55 @@
     document.addEventListener('DOMContentLoaded', async () => {
         loadSidebar('/admin');
 
-        async function renderDashboard() {
-            try {
-                const res = await fetch('/api/admin/dashboard-data');
-                const data = await res.json();
+        const formatDate = (dateString) => {
+            if (!dateString) return '<span class="no-data">N/A</span>';
+            return new Date(dateString).toLocaleString('zh-CN', { hour12: false });
+        };
 
-                document.getElementById('total-users').textContent = data.stats.totalUsers;
-                document.getElementById('total-tokens').textContent = data.stats.totalTokens;
-                document.getElementById('frontend-calls').textContent = data.stats.frontendCalls;
-                document.getElementById('today-frontend-calls').textContent = data.stats.todayFrontendCalls;
-                document.getElementById('total-calls').textContent = data.stats.totalCalls;
-                document.getElementById('today-calls').textContent = data.stats.todayCalls;
-
-                renderChart(data.chartData);
-
-                const topCharList = document.getElementById('top-characters-list');
-                topCharList.innerHTML = '';
-                if (data.topCharacters.length > 0) {
-                    data.topCharacters.forEach(char => { topCharList.insertAdjacentHTML('beforeend', `<li><span class="name">${char.character_used}</span><span class="count">${char.count} 次</span></li>`); });
-                } else { topCharList.innerHTML = '<li><span class="no-data">暂无数据</span></li>'; }
-
-                const recentActivityList = document.getElementById('recent-activity-list');
-                recentActivityList.innerHTML = '';
-                if (data.recentLogs.length > 0) {
-                    data.recentLogs.forEach(log => {
-                        const time = new Date(log.request_timestamp + 'Z').toLocaleString('zh-CN', { hour12: false });
-                        recentActivityList.insertAdjacentHTML('beforeend', `<li><div><span class="name">${log.owner_name || '未知用户'}</span><div class="time">${time}</div></div><span class="count">${log.token_name}</span></li>`);
-                    });
-                } else { recentActivityList.innerHTML = '<li><span class="no-data">暂无活动</span></li>'; }
-
-                feather.replace();
-            } catch (error) {
-                console.error(error);
-                document.querySelector('.main-content').innerHTML = '<h1>加载仪表盘数据失败，请刷新页面重试。</h1>';
-            }
-        }
-
-        function renderChart({ labels, data }) {
+        const renderChart = ({ labels, data }) => {
             const ctx = document.getElementById('api-calls-chart').getContext('2d');
-            new Chart(ctx, { type: 'line', data: { labels: labels, datasets: [{ label: 'API 调用次数', data: data, borderColor: '#3498db', backgroundColor: 'rgba(52, 152, 219, 0.1)', borderWidth: 2, fill: true, tension: 0.3 }] }, options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, responsive: true, maintainAspectRatio: false } });
+            new Chart(ctx, { type: 'line', data: { labels, datasets: [{ label: 'API 调用次数', data, borderColor: '#3498db', backgroundColor: 'rgba(52, 152, 219, 0.1)', borderWidth: 2, fill: true, tension: 0.3 }] }, options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, responsive: true, maintainAspectRatio: false } });
+        };
+
+        try {
+            const res = await fetch('/api/admin/dashboard-data');
+            if (!res.ok) throw new Error('加载数据失败');
+            const data = await res.json();
+
+            // --- 前端现在只负责直接显示数据 ---
+            document.getElementById('total-users').textContent = data.stats.totalUsers;
+            document.getElementById('total-tokens').textContent = data.stats.totalTokens;
+            document.getElementById('frontend-calls').textContent = data.stats.frontendCalls;
+            document.getElementById('today-frontend-calls').textContent = data.stats.todayFrontendCalls;
+            document.getElementById('total-calls').textContent = data.stats.totalCalls;
+            document.getElementById('today-calls').textContent = data.stats.todayCalls;
+
+            // 直接使用后端准备好的图表数据
+            renderChart(data.chartData);
+
+            // 填充热门角色
+            const topCharList = document.getElementById('top-characters-list');
+            topCharList.innerHTML = data.topCharacters.length ? data.topCharacters.map(c => `<li><span class="name">${c.character_used}</span><span class="count">${c.count} 次</span></li>`).join('') : '<li><span class="no-data">暂无数据</span></li>';
+
+            // 填充近期活动
+            const recentActivityList = document.getElementById('recent-activity-list');
+            recentActivityList.innerHTML = data.recentLogs.length ? data.recentLogs.map(log => `<li><div><span class="name">${log.owner_name || '未知'}</span><div class="time">${formatDate(log.request_timestamp)}</div></div><span class="count">${log.token_name || '未知'}</span></li>`).join('') : '<li><span class="no-data">暂无活动</span></li>';
+
+            feather.replace(); // 激活图标
+
+        } catch (error) {
+            console.error(error);
+            document.querySelector('.main-content').innerHTML = `<h1>${error.message}，请刷新页面重试。</h1>`;
         }
 
-        (async () => {
-            try {
-                const sessionRes = await fetch('/api/session-info');
-                const sessionData = await sessionRes.json();
-                if (sessionData.loggedIn) {
-                    document.getElementById('welcome-message').textContent = `欢迎, ${sessionData.user.name}`;
-                }
-            } catch(e) { /* do nothing */ }
-        })();
-
-        renderDashboard();
+        // 获取并显示管理员信息
+        try {
+            const sessionRes = await fetch('/api/session-info');
+            const sessionData = await sessionRes.json();
+            if (sessionData.loggedIn) {
+                document.getElementById('welcome-message').textContent = `欢迎, ${sessionData.user.name}`;
+            }
+        } catch(e) { /* do nothing */ }
     });
 </script>
 </body>

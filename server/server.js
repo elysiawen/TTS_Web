@@ -6,21 +6,31 @@ const crypto = require('crypto');
 const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 
-const { db, initDb } = require('./database'); // 引入数据库
-const authenticateRequest = require('./authMiddleware');
-const ensureAdmin = require('./adminMiddleware');
+const createAuthMiddleware = require('./authMiddleware');
+const createAdminMiddleware = require('./adminMiddleware'); // <-- 引入创建函数
 
-// 初始化数据库和表
-initDb();
+let db; // 将 db 提升为全局变量
+const app = express();
+
+const initializeApp = async () => {
+  // 1. 加载并等待数据库初始化函数完成
+  const initializeDatabase = require('./db');
+  const dbConnection = await initializeDatabase();
+  db = dbConnection.db; // 将连接成功的 db 对象赋值给全局变量
+
+  // --- 核心修改：在获取到 db 对象后，才创建中间件 ---
+  const authenticateRequest = createAuthMiddleware(db);
+  const ensureAdmin = createAdminMiddleware(db); // <-- 正确的创建方式
+
 
 // 新增：用于存储每个角色轮询计数器的对象
 const roundRobinCounters = {};
+  let dashboardCache = null; // <-- 添加这一行
+  const CACHE_DURATION_SECONDS = 60; // <-- 添加这一行
 
-const app = express();
 app.set('trust proxy', 1);
-const port = 3001;
+const port = process.env.APP_PORT || 3000;
 
 // --- 中间件配置 ---
 
@@ -84,7 +94,7 @@ app.get('/api/tts', authenticateRequest, async (req, res) => {
     // 只有当请求被 authMiddleware 标记为来自前端时，才执行写入
     if (req.isFrontendCall) {
       const sql = `INSERT INTO frontend_logs (user_id, ip_address, character_used, request_text, status_message) VALUES (?, ?, ?, ?, ?)`;
-      db.run(sql, [logInfo.userId, logInfo.ipAddress, logInfo.character, logInfo.requestText, statusMessage], (err) => {
+      db.run_query(sql, [logInfo.userId, logInfo.ipAddress, logInfo.character, logInfo.requestText, statusMessage], (err) => {
         if (err) console.error("Failed to write frontend log:", err);
       });
     }
@@ -185,32 +195,66 @@ app.get('/logout', (req, res) => {
 
 // 5. OAuth 回调: /oauth/callback
 app.get('/oauth/callback', async (req, res) => {
-  // ... state 验证逻辑不变 ...
+  // 1. 从URL查询参数中获取 code 和 state
   const { code, state } = req.query;
+
+  // 2. 安全验证：检查 state 参数以防止 CSRF 攻击
   const savedState = req.session.oauth_state;
-  delete req.session.oauth_state;
-  if (!state || state !== savedState) return res.status(403).send('Invalid state.');
+  delete req.session.oauth_state; // state 只能使用一次，用完即删
+  if (!state || !savedState || state !== savedState) {
+    return res.status(403).send('<h1>认证失败</h1><p>State参数无效，可能存在跨站请求伪造攻击。请返回首页重试。</p><a href="/">返回首页</a>');
+  }
 
   try {
-    // ... 换取 token, 获取用户信息的逻辑不变 ...
-    const tokenResponse = await axios.post(process.env.OAUTH_TOKEN_URL, new URLSearchParams({ grant_type: 'authorization_code', code, client_id: process.env.OAUTH_CLIENT_ID, client_secret: process.env.OAUTH_CLIENT_SECRET, redirect_uri: `${process.env.APP_BASE_URL}/oauth/callback` }));
-    const accessToken = tokenResponse.data.access_token;
-    const userInfoResponse = await axios.get(process.env.OAUTH_USERINFO_URL, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-    const userInfo = userInfoResponse.data;
-
-    // **新增**: 将用户信息存入数据库（如果不存在则插入，如果存在则更新）
-    const sql = `INSERT INTO users (id, name, email, avatar) VALUES (?, ?, ?, ?)
-                 ON CONFLICT(id) DO UPDATE SET name=excluded.name, email=excluded.email, avatar=excluded.avatar`;
-    db.run(sql, [userInfo.sub, userInfo.name, userInfo.email, userInfo.picture], (err) => {
-      if (err) console.error("Error saving user to DB:", err);
+    // 3. 向 OAuth 提供商的 token 端点发送请求，用 code 换取 access_token
+    const tokenResponse = await axios.post(process.env.OAUTH_TOKEN_URL, new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code,
+      client_id: process.env.OAUTH_CLIENT_ID,
+      client_secret: process.env.OAUTH_CLIENT_SECRET,
+      redirect_uri: `${process.env.APP_BASE_URL}/oauth/callback`
+    }), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
-    // 将用户信息存入 session 并重定向
+    const accessToken = tokenResponse.data.access_token;
+    if (!accessToken) {
+      throw new Error('OAuth provider did not return an access token.');
+    }
+
+    // 4. 使用 access_token 获取用户信息
+    const userInfoResponse = await axios.get(process.env.OAUTH_USERINFO_URL, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    const userInfo = userInfoResponse.data;
+
+    if (!userInfo || !userInfo.sub) {
+      throw new Error('OAuth provider did not return valid user info or user ID (sub).');
+    }
+
+    // 5. 与我们的数据库进行同步（更新或插入 Upsert）
+    const [existingUser] = await db.query('SELECT id FROM users WHERE id = ?', [userInfo.sub]);
+
+    if (existingUser) {
+      // 如果用户已存在，则更新他们的信息（名字、头像等可能已更改）
+      const sql = 'UPDATE users SET name = ?, email = ?, avatar = ? WHERE id = ?';
+      await db.run_query(sql, [userInfo.name, userInfo.email, userInfo.picture, userInfo.sub]);
+    } else {
+      // 如果是新用户，则插入一条新记录
+      const sql = 'INSERT INTO users (id, name, email, avatar) VALUES (?, ?, ?, ?)';
+      await db.run_query(sql, [userInfo.sub, userInfo.name, userInfo.email, userInfo.picture]);
+    }
+
+    // 6. 为用户创建 session，完成登录
     req.session.user = userInfo;
+
+    // 7. 将用户重定向回首页
     res.redirect('/');
+
   } catch (error) {
+    // 8. 统一处理流程中可能出现的任何错误
     console.error('OAuth Callback Error:', error.response ? error.response.data : error.message);
-    res.status(500).send('Login process failed.');
+    res.status(500).send('<h1>登录失败</h1><p>与认证服务器通信时发生错误，请稍后重试。</p><a href="/">返回首页</a>');
   }
 });
 
@@ -244,70 +288,68 @@ app.get('/api-docs', (req, res) => {
 // --- 新增：管理 API Token 的 CRUD 接口 ---
 
 // 读取当前用户的所有 tokens
-app.get('/api/tokens', ensureLoggedIn, (req, res) => {
-  const userId = req.session.user.sub;
+  app.get('/api/tokens', ensureLoggedIn, async (req, res) => {
+    try {
+      const userId = req.session.user.sub;
+      const sql = "SELECT id, token, name, created_at, usage_count, last_used_at FROM api_tokens WHERE user_id = ? ORDER BY id DESC";
 
-  // **修改**：查询语句中增加 usage_count 和 last_used_at 字段
-  const sql = "SELECT id, token, name, created_at, usage_count, last_used_at FROM api_tokens WHERE user_id = ?";
+      // 使用新的 db.query 辅助函数
+      const rows = await db.query(sql, [userId]);
 
-  db.all(sql, [userId], (err, rows) => {
-    if (err) {
-      console.error("Database error fetching tokens:", err);
-      return res.status(500).json({ error: "Database error." });
+      const sanitizedRows = rows.map(row => ({
+        ...row,
+        token_preview: `${row.token.substring(0, 8)}...`
+      }));
+
+      res.json(sanitizedRows);
+    } catch (error) {
+      console.error("Failed to retrieve user tokens:", error);
+      res.status(500).json({ error: "获取Token列表失败。" });
     }
-
-    const sanitizedRows = rows.map(row => ({
-      ...row,
-      token_preview: `${row.token.substring(0, 8)}...`
-    }));
-    res.json(sanitizedRows);
   });
-});
 
 // 创建一个新的 token
-app.post('/api/tokens', ensureLoggedIn, (req, res) => {
-  const { name } = req.body;
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: "Token name is required." });
-  }
-
-  // 从 session 中获取用户的 'sub'
-  const userIdFromSession = req.session.user ? req.session.user.sub : undefined;
-
-  if (!userIdFromSession) {
-    return res.status(401).json({ error: "User session is invalid or ID is missing. Please log in again." });
-  }
-
-  const newToken = `tts_token_${crypto.randomBytes(24).toString('hex')}`;
-  const sql = "INSERT INTO api_tokens (token, user_id, name) VALUES (?, ?, ?)";
-
-  // --- 这是修正的核心 ---
-  // 确保将 userIdFromSession 作为第二个参数传递给数据库
-  db.run(sql, [newToken, userIdFromSession, name.trim()], function(err) {
-    if (err) {
-      console.error('Database error when creating token:', err);
-      return res.status(500).json({ error: "Failed to create token due to a database error." });
+  app.post('/api/tokens', ensureLoggedIn, async (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Token名称不能为空。" });
     }
-    // 创建成功，返回包含完整新Token的对象
-    res.status(201).json({ id: this.lastID, name: name.trim(), token: newToken });
+
+    try {
+      const userIdFromSession = req.session.user.sub;
+      const newToken = `tts_token_${crypto.randomBytes(24).toString('hex')}`;
+      const sql = "INSERT INTO api_tokens (token, user_id, name) VALUES (?, ?, ?)";
+
+      // 使用新的 db.run_query 辅助函数
+      const result = await db.run_query(sql, [newToken, userIdFromSession, name.trim()]);
+
+      res.status(201).json({ id: result.lastID, name: name.trim(), token: newToken });
+    } catch (error) {
+      console.error("Failed to create user token:", error);
+      res.status(500).json({ error: "创建Token失败。" });
+    }
   });
-});
 
 // 删除一个 token
-app.delete('/api/tokens/:id', ensureLoggedIn, (req, res) => {
-  const tokenId = req.params.id;
-  const userId = req.session.user.sub;
+  app.delete('/api/tokens/:id', ensureLoggedIn, async (req, res) => {
+    try {
+      const tokenId = req.params.id;
+      const userId = req.session.user.sub;
+      const sql = "DELETE FROM api_tokens WHERE id = ? AND user_id = ?";
 
-  // 确保用户只能删除自己的 token
-  const sql = "DELETE FROM api_tokens WHERE id = ? AND user_id = ?";
-  db.run(sql, [tokenId, userId], function(err) {
-    if (err) return res.status(500).json({ error: "Database error." });
-    if (this.changes === 0) {
-      return res.status(404).json({ error: "Token not found or you do not have permission." });
+      // 使用新的 db.run_query 辅助函数
+      const result = await db.run_query(sql, [tokenId, userId]);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: "未找到Token或您没有权限删除。" });
+      }
+
+      res.status(204).send(); // 成功，无内容返回
+    } catch (error) {
+      console.error("Failed to delete user token:", error);
+      res.status(500).json({ error: "删除Token失败。" });
     }
-    res.status(204).send(); // No Content
   });
-});
 
 // --- 新增：管理员后台的入口路由 ---
 // 这个路由受 ensureAdmin 中间件保护
@@ -318,68 +360,86 @@ app.get('/admin', ensureAdmin, (req, res) => {
 // --- 新增：为管理员仪表盘提供数据的 API ---
 
 // --- 新增：为全新仪表盘提供所有数据的统一接口 ---
-// 获取全新仪表盘所有数据的统一接口
-app.get('/api/admin/dashboard-data', ensureAdmin, async (req, res) => {
-  try {
-    const [
-      userCountResult,
-      tokenCountResult,
-      totalCallsResult,
-      todayCallsResult,
-      frontendCallsResult,
-      todayFrontendCallsResult, // <-- 新增
-      dailyStats,
-      recentLogs,
-      topCharacters
-    ] = await Promise.all([
-      db.query('SELECT COUNT(*) as count FROM users'),
-      db.query('SELECT COUNT(*) as count FROM api_tokens'),
-      db.query('SELECT COUNT(*) as count FROM usage_logs'),
-      db.query("SELECT COUNT(*) as count FROM usage_logs WHERE request_timestamp >= date('now', 'start of day', 'localtime') AND request_timestamp < date('now', '+1 day', 'start of day', 'localtime')"),
-      db.query('SELECT COUNT(*) as count FROM frontend_logs'),
-      // <-- 新增：查询前端日志中今天的调用次数
-      db.query("SELECT COUNT(*) as count FROM frontend_logs WHERE request_timestamp >= date('now', 'start of day', 'localtime') AND request_timestamp < date('now', '+1 day', 'start of day', 'localtime')"),
-      db.query(`
-        SELECT DATE(request_timestamp) as date, COUNT(*) as count
-        FROM usage_logs WHERE request_timestamp >= DATE('now', '-6 days', 'localtime')
-        GROUP BY date ORDER BY date ASC
-      `),
-      db.query(`
-        SELECT l.id, l.request_timestamp, u.name as owner_name, tk.name as token_name
-        FROM usage_logs l LEFT JOIN users u ON l.user_id = u.id LEFT JOIN api_tokens tk ON l.token_id = tk.id
-        ORDER BY l.id DESC LIMIT 5
-      `),
-      db.query(`
-                SELECT character_used, COUNT(*) as count 
-                FROM usage_logs WHERE character_used IS NOT NULL 
-                GROUP BY character_used ORDER BY count DESC LIMIT 5
-            `)
-    ]);
+// 获取仪表盘所有数据的统一接口 (最终重构版)
+  app.get('/api/admin/dashboard-data', ensureAdmin, async (req, res) => {
+    // 缓存逻辑保持不变
+    if (dashboardCache && (Date.now() - dashboardCache.timestamp) < CACHE_DURATION_SECONDS * 1000) {
+      console.log("[Cache] Serving dashboard data from cache.");
+      return res.json(dashboardCache.data);
+    }
 
-    // --- 准备图表数据 (不变) ---
-    const labels = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - i); return d.toISOString().split('T')[0]; }).reverse();
-    const chartData = labels.map(label => { const found = dailyStats.find(row => row.date === label); return found ? found.count : 0; });
+    console.log("[Cache] Cache expired or not present. Fetching new dashboard data.");
+    try {
+      const dbType = process.env.DB_TYPE || 'sqlite';
+      const timeZoneOffset = '+8 hours';
+      const mysqlTimeZone = '+08:00';
 
-    // --- 组装最终结果 ---
-    res.json({
-      stats: {
-        totalUsers: userCountResult[0].count,
-        totalTokens: tokenCountResult[0].count,
-        totalCalls: totalCallsResult[0].count,
-        todayCalls: todayCallsResult[0].count,
-        frontendCalls: frontendCallsResult[0].count,
-        todayFrontendCalls: todayFrontendCallsResult[0].count // <-- 新增
-      },
-      chartData: { labels, data: chartData },
-      recentLogs,
-      topCharacters
-    });
+      let todayTokenSql, todayFrontendSql, dailyStatsSql;
 
-  } catch (error) {
-    console.error("Error fetching dashboard data:", error);
-    res.status(500).json({ error: "Failed to load dashboard data." });
-  }
-});
+      if (dbType === 'mysql') {
+        todayTokenSql = `SELECT COUNT(*) as count FROM usage_logs WHERE request_timestamp >= CONVERT_TZ(CURDATE(), '${mysqlTimeZone}', '+00:00') AND request_timestamp < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, '${mysqlTimeZone}', '+00:00')`;
+        todayFrontendSql = `SELECT COUNT(*) as count FROM frontend_logs WHERE request_timestamp >= CONVERT_TZ(CURDATE(), '${mysqlTimeZone}', '+00:00') AND request_timestamp < CONVERT_TZ(CURDATE() + INTERVAL 1 DAY, '${mysqlTimeZone}', '+00:00')`;
+        dailyStatsSql = `SELECT DATE(CONVERT_TZ(request_timestamp, '+00:00', '${mysqlTimeZone}')) as date, COUNT(*) as count FROM usage_logs WHERE request_timestamp >= DATE_SUB(CONVERT_TZ(CURDATE(), '${mysqlTimeZone}', '+00:00'), INTERVAL 6 DAY) GROUP BY date ORDER BY date ASC`;
+      } else { // SQLite
+        todayTokenSql = `SELECT COUNT(*) as count FROM usage_logs WHERE DATE(request_timestamp, '${timeZoneOffset}') = DATE('now', 'localtime', '${timeZoneOffset}')`;
+        todayFrontendSql = `SELECT COUNT(*) as count FROM frontend_logs WHERE DATE(request_timestamp, '${timeZoneOffset}') = DATE('now', 'localtime', '${timeZoneOffset}')`;
+        dailyStatsSql = `SELECT DATE(request_timestamp, '${timeZoneOffset}') as date, COUNT(*) as count FROM usage_logs WHERE request_timestamp >= DATE('now', '-6 days', 'localtime', '${timeZoneOffset}') GROUP BY date ORDER BY date ASC`;
+      }
+
+      const [
+        userCountResult, tokenCountResult, totalCallsResult, frontendCallsResult,
+        todayCallsResult, todayFrontendCallsResult, dailyStats,
+        recentLogs, topCharacters
+      ] = await Promise.all([
+        db.query('SELECT COUNT(*) as count FROM users'),
+        db.query('SELECT COUNT(*) as count FROM api_tokens'),
+        db.query('SELECT COUNT(*) as count FROM usage_logs'),
+        db.query('SELECT COUNT(*) as count FROM frontend_logs'),
+        db.query(todayTokenSql),
+        db.query(todayFrontendSql),
+        db.query(dailyStatsSql),
+        db.query(`SELECT l.id, l.request_timestamp, u.name as owner_name, tk.name as token_name FROM usage_logs l LEFT JOIN users u ON l.user_id = u.id LEFT JOIN api_tokens tk ON l.token_id = tk.id ORDER BY l.id DESC LIMIT 5`),
+        db.query(`SELECT character_used, COUNT(*) as count FROM usage_logs WHERE character_used IS NOT NULL GROUP BY character_used ORDER BY count DESC LIMIT 5`)
+      ]);
+
+      // --- 在后端准备图表数据 ---
+      const labels = [...Array(7)].map((_, i) => {
+        // 注意：这里我们基于服务器的当前时间生成标签，以匹配SQL查询
+        const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+        d.setDate(d.getDate() - i);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }).reverse();
+
+      const chartData = labels.map(label => {
+        const found = dailyStats.find(row => (row.date instanceof Date ? row.date.toISOString().split('T')[0] : row.date) === label);
+        return found ? found.count : 0;
+      });
+
+      const responseData = {
+        stats: {
+          totalUsers: userCountResult[0].count,
+          totalTokens: tokenCountResult[0].count,
+          totalCalls: totalCallsResult[0].count,
+          frontendCalls: frontendCallsResult[0].count,
+          todayCalls: todayCallsResult[0].count,
+          todayFrontendCalls: todayFrontendCallsResult[0].count
+        },
+        chartData: { labels, data: chartData }, // 直接返回准备好的图表数据
+        recentLogs,
+        topCharacters
+      };
+
+      dashboardCache = { data: responseData, timestamp: Date.now() };
+      res.json(responseData);
+
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+      res.status(500).json({ error: "Failed to load dashboard data." });
+    }
+  });
 
 // 新增：指向用户管理页面的路由
 app.get('/admin/users', ensureAdmin, (req, res) => {
@@ -399,7 +459,8 @@ app.get('/api/admin/users', ensureAdmin, async (req, res) => {
     const total = totalResult.total;
     const totalPages = Math.ceil(total / limit);
 
-    const users = await db.query('SELECT id, name, email, avatar FROM users ORDER BY rowid DESC LIMIT ? OFFSET ?', [limit, offset]);
+    // 修正：移除 SQLite 特有的 rowid，使用主键 id 排序
+    const users = await db.query('SELECT id, name, email, avatar FROM users ORDER BY id DESC LIMIT ? OFFSET ?', [limit, offset]);
 
     res.json({
       users: users,
@@ -411,21 +472,33 @@ app.get('/api/admin/users', ensureAdmin, async (req, res) => {
 });
 
 // 2. 删除指定用户（及其所有关联数据）
-app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
-  const userId = req.params.id;
-  try {
-    // 使用 serialize 确保操作按顺序执行，实现事务性
-    db.serialize(async () => {
-      await db.query('DELETE FROM usage_logs WHERE user_id = ?', [userId]);
-      await db.query('DELETE FROM api_tokens WHERE user_id = ?', [userId]);
-      await db.query('DELETE FROM users WHERE id = ?', [userId]);
-    });
-    res.status(204).send(); // 204 No Content
-  } catch (error) {
-    console.error(`Failed to delete user ${userId}:`, error);
-    res.status(500).json({ error: 'Failed to delete user.' });
-  }
-});
+// 删除指定用户（及其所有关联数据）- 已修复数据库兼容性问题
+  app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
+    const userId = req.params.id;
+    try {
+      // 移除 db.serialize，直接使用 await 来保证操作的先后顺序
+      // 这种方式同时兼容 SQLite 和 MySQL
+
+      // 第1步：删除该用户的所有 token 使用日志
+      await db.run_query('DELETE FROM usage_logs WHERE user_id = ?', [userId]);
+
+      // 第2步：删除该用户的所有前端使用日志
+      await db.run_query('DELETE FROM frontend_logs WHERE user_id = ?', [userId]);
+
+      // 第3步：删除该用户的所有 API Token
+      await db.run_query('DELETE FROM api_tokens WHERE user_id = ?', [userId]);
+
+      // 第4步：删除用户本身
+      await db.run_query('DELETE FROM users WHERE id = ?', [userId]);
+
+      console.log(`Successfully deleted user ${userId} and all associated data.`);
+      res.status(204).send(); // 成功，无内容返回
+
+    } catch (error) {
+      console.error(`Failed to delete user ${userId}:`, error);
+      res.status(500).json({ error: 'Failed to delete user.' });
+    }
+  });
 
 // 新增：指向 Token 管理页面的路由
 app.get('/admin/tokens', ensureAdmin, (req, res) => {
@@ -665,3 +738,6 @@ app.get('/api/admin/frontend-logs', ensureAdmin, async (req, res) => {
 app.listen(port, () => {
   console.log(`TTS 服务已启动，请访问 http://localhost:${port}`);
 });
+};
+
+initializeApp();

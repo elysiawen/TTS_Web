@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF--8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>使用记录 - 管理员后台</title>
+    <title>Token 使用记录 - 管理员后台</title>
     <link rel="stylesheet" href="/admin/css/admin.css">
     <style>
         .filters {
@@ -50,7 +50,7 @@
 <nav id="sidebar-container" class="sidebar"></nav>
 <main class="main-content">
     <header class="header">
-        <h1>API 使用记录</h1>
+        <h1>Token 使用记录</h1>
     </header>
 
     <div class="content-box">
@@ -83,7 +83,7 @@
 <script src="/admin/js/admin.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
-        loadSidebar();
+        loadSidebar('/admin/logs');
 
         const logsTableBody = document.getElementById('logs-table-body');
         const paginationControls = document.getElementById('pagination-controls');
@@ -94,6 +94,24 @@
 
         let currentPage = 1;
         let currentFilters = {};
+
+        // --- The "Smart" formatDate Function ---
+        function formatDate(dateString) {
+            if (!dateString) return '<span class="no-data">N/A</span>';
+            let dateObj;
+            if (dateString.includes('T') && dateString.endsWith('Z')) {
+                // Handles ISO 8601 UTC format from MySQL
+                dateObj = new Date(dateString);
+            } else {
+                // Handles 'YYYY-MM-DD HH:MM:SS' format from SQLite as UTC
+                const compliantDateString = dateString.replace(' ', 'T') + 'Z';
+                dateObj = new Date(compliantDateString);
+            }
+            if (isNaN(dateObj.getTime())) {
+                return '<span class="no-data">无效日期</span>';
+            }
+            return dateObj.toLocaleString('zh-CN', { hour12: false });
+        }
 
         async function fetchLogs(page = 1, filters = {}) {
             try {
@@ -110,7 +128,8 @@
                     logsTableBody.innerHTML = '<tr><td colspan="7" style="text-align:center;">没有找到符合条件的记录。</td></tr>';
                 } else {
                     logs.forEach(log => {
-                        const timestamp = new Date(log.request_timestamp + 'Z').toLocaleString('zh-CN', { hour12: false });
+                        // --- Use the new formatDate function ---
+                        const timestamp = formatDate(log.request_timestamp);
                         const requestText = log.request_text || '';
 
                         const row = `
@@ -123,7 +142,7 @@
                             <td>${log.status_code}</td>
                             <td>${timestamp}</td>
                         </tr>
-                    `;
+                        `;
                         logsTableBody.insertAdjacentHTML('beforeend', row);
                     });
                 }
@@ -138,7 +157,7 @@
             }
         }
 
-        function renderPagination({ total, limit, page, totalPages }) {
+        function renderPagination({ page, totalPages }) {
             if (totalPages <= 1) {
                 paginationControls.innerHTML = '';
                 return;
@@ -147,7 +166,7 @@
             <button id="prev-page" ${page === 1 ? 'disabled' : ''}>上一页</button>
             <span>第 ${page} / ${totalPages} 页</span>
             <button id="next-page" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
-        `;
+            `;
 
             document.getElementById('prev-page')?.addEventListener('click', () => fetchLogs(currentPage - 1, currentFilters));
             document.getElementById('next-page')?.addEventListener('click', () => fetchLogs(currentPage + 1, currentFilters));
@@ -161,14 +180,8 @@
         }
 
         filterBtn.addEventListener('click', applyFilters);
-
-        // 支持在输入框中按回车进行搜索
-        userIdFilter.addEventListener('keyup', (e) => {
-            if (e.key === 'Enter') applyFilters();
-        });
-        tokenIdFilter.addEventListener('keyup', (e) => {
-            if (e.key === 'Enter') applyFilters();
-        });
+        userIdFilter.addEventListener('keyup', (e) => { if (e.key === 'Enter') applyFilters(); });
+        tokenIdFilter.addEventListener('keyup', (e) => { if (e.key === 'Enter') applyFilters(); });
 
         clearFilterBtn.addEventListener('click', () => {
             userIdFilter.value = '';

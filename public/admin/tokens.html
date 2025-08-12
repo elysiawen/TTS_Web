@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Token 管理 - 管理员后台</title>
     <link rel="stylesheet" href="/admin/css/admin.css">
+    <style>
+        .action-btns { display: flex; gap: 10px; }
+        .delete-btn { background: #e74c3c; }
+        .delete-btn:hover { background: #c0392b; }
+    </style>
 </head>
 <body>
 <nav id="sidebar-container" class="sidebar"></nav>
@@ -45,6 +50,26 @@
         const paginationControls = document.getElementById('pagination-controls');
         let currentPage = 1;
 
+        // --- 核心修改：使用新的“智能”formatDate函数 ---
+        function formatDate(dateString) {
+            if (!dateString) {
+                return '<span class="no-data">未使用</span>';
+            }
+            let dateObj;
+            // 检查日期字符串是否为标准的 ISO UTC 格式 (来自MySQL)
+            if (dateString.includes('T') && dateString.endsWith('Z')) {
+                dateObj = new Date(dateString);
+            } else {
+                // 否则，按 SQLite 格式处理
+                const compliantDateString = dateString.replace(' ', 'T') + 'Z';
+                dateObj = new Date(compliantDateString);
+            }
+            if (isNaN(dateObj.getTime())) {
+                return '<span class="no-data">无效日期</span>';
+            }
+            return dateObj.toLocaleString('zh-CN', { hour12: false });
+        }
+
         async function fetchTokens(page = 1) {
             try {
                 const res = await fetch(`/api/admin/tokens?page=${page}&limit=10`);
@@ -57,17 +82,13 @@
                 tokensTableBody.innerHTML = '';
 
                 if (tokens.length === 0) {
-                    // 3. 修改这里的 colspan
                     tokensTableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">没有找到任何 Token。</td></tr>';
                 } else {
                     tokens.forEach(token => {
-                        const lastUsed = token.last_used_at
-                            ? new Date(token.last_used_at + 'Z').toLocaleString()
-                            : '<span class="no-data">未使用</span>';
+                        // --- 使用新的 formatDate 函数 ---
+                        const lastUsed = formatDate(token.last_used_at);
+                        const createdAt = formatDate(token.created_at);
 
-                        const createdAt = new Date(token.created_at + 'Z').toLocaleString();
-
-                        // 2. 新增用于显示 ID 的单元格
                         const row = `
                         <tr>
                             <td>${token.id}</td>
